@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "LDC.h"
+#include "LCD.h"
 
 void func(void)
 {

@@ -1,2 +1,2 @@
-idf_component_register(SRCS "LDC.c"
+idf_component_register(SRCS "LCD.c"
                     INCLUDE_DIRS "include")
