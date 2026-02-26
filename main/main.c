@@ -3,6 +3,7 @@
 #include <sys/time.h>
 #include "../components/LCD/esp-idf-lib__esp_idf_lib_helpers/esp_idf_lib_helpers.h"
 #include "../components/LCD/esp-idf-lib__hd44780/hd44780.h"
+#include "../components/temp_sensor/DHT.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include "driver/gpio.h"
@@ -29,8 +30,8 @@
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up               ()
-#define go_down             ()
+#define go_up_max               ()
+#define go_down_max             ()
 
 //LCD structure, including GPIOs
 hd44780_t lcd = {
