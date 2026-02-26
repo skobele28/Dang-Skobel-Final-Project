@@ -12,15 +12,16 @@
 
 //Global variables
 //Pins declaration
-#define Elevator1           
-#define Elevator2  
-#define Elevator3
-#define Floor1_call
-#define Floor2_callup
-#define Floor2_calldown
-#define Floor3_call
-#define am2302
-#define buzzer
+#define FLOOR1_SELECT   GPIO_NUM_6           
+#define FLOOR2_SELECT   GPIO_NUM_5
+#define FLOOR3_SELECT   GPIO_NUM_4
+#define FLOOR1_CALLUP   GPIO_NUM_17
+#define FLOOR2_CALLDOWN   GPIO_NUM_16
+#define FLOOR2_CALLUP GPIO_NUM_15
+#define FLOOR3_CALLDOWN GPIO_NUM_7
+#define TEMP_SENSOR     GPIO_NUM_18
+#define FIRE_SYSTEM     GPIO_NUM_9
+
 //LCD pins are inside the LCD init function
 
 //LEDC configuration
@@ -52,7 +53,7 @@ hd44780_t lcd = {
 //Global boolean values
 
 //function prototypes
-static void pinConfig(void);  
+static void buttonConfig(void);  
 static void ledc_initialize(void);
 static void input_task(void);
 static void servo_task(void);
@@ -64,37 +65,37 @@ void app_main(void)
 }
 
 
-void pinConfig(void){
+void buttonConfig(void){
     //Reset pins
-    gpio_reset_pin(Elevator1);
-    gpio_reset_pin(Elevator2);
-    gpio_reset_pin(Elevator3);
-    gpio_reset_pin(Floor1_call);
-    gpio_reset_pin(Floor2_calldown);
-    gpio_reset_pin(Floor2_callup);
-    gpio_reset_pin(Floor3_call);
-    gpio_reset_pin(am2302);
-    gpio_reset_pin(buzzer);
+    gpio_reset_pin(FLOOR1_SELECT);
+    gpio_reset_pin(FLOOR2_SELECT);
+    gpio_reset_pin(FLOOR3_SELECT);
+    gpio_reset_pin(FLOOR1_CALLUP);
+    gpio_reset_pin(FLOOR2_CALLDOWN);
+    gpio_reset_pin(FLOOR2_CALLUP);
+    gpio_reset_pin(FLOOR3_CALLDOWN);
+    gpio_reset_pin(TEMP_SENSOR);
+    gpio_reset_pin(FIRE_SYSTEM);
 
     //Set directions
-    gpio_set_direction(Elevator1);
-    gpio_set_direction(Elevator2);
-    gpio_set_direction(Elevator3);
-    gpio_set_direction(Floor1_call);
-    gpio_set_direction(Floor2_calldown);
-    gpio_set_direction(Floor2_callup);
-    gpio_set_direction(Floor3_call);
-    gpio_set_direction(am2302);
-    gpio_set_direction(buzzer);
+    gpio_set_direction(FLOOR1_SELECT, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR2_SELECT, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR3_SELECT, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR1_CALLUP, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR2_CALLDOWN, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR2_CALLUP, GPIO_MODE_INPUT);
+    gpio_set_direction(FLOOR3_CALLDOWN, GPIO_MODE_INPUT);
+    gpio_set_direction(TEMP_SENSOR, GPIO_MODE_INPUT);
+    gpio_set_direction(FIRE_SYSTEM, GPIO_MODE_OUTPUT);
 
     //Configure pullup/down
-    gpio_pulldown_en(Elevator1);
-    gpio_pulldown_en(Elevator2);
-    gpio_pulldown_en(Elevator3);
-    gpio_pulldown_en(Floor1_call);
-    gpio_pulldown_en(Floor2_calldown);
-    gpio_pulldown_en(Floor2_callup);
-    gpio_pulldown_en(Floor3_call);
+    gpio_pulldown_en(FLOOR1_SELECT);
+    gpio_pulldown_en(FLOOR2_SELECT);
+    gpio_pulldown_en(FLOOR3_SELECT);
+    gpio_pulldown_en(FLOOR1_CALLUP);
+    gpio_pulldown_en(FLOOR2_CALLDOWN);
+    gpio_pulldown_en(FLOOR2_CALLUP);
+    gpio_pulldown_en(FLOOR3_CALLDOWN);
 }
 
 
