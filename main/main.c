@@ -40,21 +40,6 @@
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
 
-//LCD structure, including GPIOs
-hd44780_t lcd = {
-    .write_cb = NULL,
-    .font = HD44780_FONT_5X8,
-    .lines = 2,
-    .pins = {
-        .rs = GPIO_NUM_1,                           // GPIO for Register Select
-        .e  = GPIO_NUM_48,                           // GPIO for enable
-        .d4 = GPIO_NUM_35,                           // GPIO for data 4
-        .d5 = GPIO_NUM_36,                          // GPIO for data 5
-        .d6 = GPIO_NUM_37,                          // GPIO for data 6
-        .d7 = GPIO_NUM_38,                          // GPIO for data 7
-        .bl = HD44780_NOT_USED
-    }
-};
 
 //Global boolean values
 
@@ -71,6 +56,26 @@ void app_main(void)
     button_config();
     ledc_initialize();
 
+    //LCD structure, including GPIOs
+    hd44780_t lcd = {
+        .write_cb = NULL,
+        .font = HD44780_FONT_5X8,
+        .lines = 2,
+        .pins = {
+            .rs = GPIO_NUM_1,                           // GPIO for Register Select
+            .e  = GPIO_NUM_48,                           // GPIO for enable
+            .d4 = GPIO_NUM_35,                           // GPIO for data 4
+            .d5 = GPIO_NUM_36,                          // GPIO for data 5
+            .d6 = GPIO_NUM_37,                          // GPIO for data 6
+            .d7 = GPIO_NUM_38,                          // GPIO for data 7
+            .bl = HD44780_NOT_USED
+        }
+    };
+
+    // initialize lcd
+    ESP_ERROR_CHECK(hd44780_init(&lcd));
+
+    // adc oneshot read and calibration configuration
     int floor1_adc_bits;                       // potentiometer ADC reading (bits)
     int floor1_adc_mV;                         // potentiometer ADC reading (mV)
     int floor2_adc_bits;                   // LDR ADC reading (bits)
@@ -107,7 +112,20 @@ void app_main(void)
     adc_cali_create_scheme_curve_fitting                // Populate cal handle
     (&cali_config, &adc2_cali_chan_handle);
 
+    bool floor1_present = true;
+    bool floor2_present = false;
+    bool floor3_present = false;
+    bool floor1_callup = false;
+    bool floor2_calldown = false;
+    bool floor2_callup = false;
+    bool floor3_calldown = false;
+    bool floor1_select = false;
+    bool floor2_select = false;
+    bool floor3_select = false;
+
     while (1){
+        
+        // adc oneshot read for three LDRs
         adc_oneshot_read
         (adc2_handle, FLOOR1_LDR, &floor1_adc_bits);                // Read ADC bits (floor 1 LDR)
         
@@ -125,8 +143,19 @@ void app_main(void)
         
         adc_cali_raw_to_voltage
         (adc2_cali_chan_handle, floor3_adc_bits, &floor3_adc_mV);   // Convert to mV (floor 3 LDR)
-    }
+    
 
+        // initialize variables in relation to GPIO pin inputs (pushbuttons)
+        floor1_callup = gpio_get_level(FLOOR1_CALLUP)==1;
+        floor2_calldown = gpio_get_level(FLOOR2_CALLDOWN)==1;
+        floor2_callup = gpio_get_level(FLOOR2_CALLUP)==1;
+        floor3_calldown = gpio_get_level(FLOOR3_CALLDOWN)==1;
+        floor1_select = gpio_get_level(FLOOR1_SELECT)==1;
+        floor2_select = gpio_get_level(FLOOR2_SELECT)==1;
+        floor3_select = gpio_get_level(FLOOR3_SELECT)==1;
+
+
+    }
 }
 
 
