@@ -45,8 +45,9 @@ hd44780_t lcd = {
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up_max               ()
-#define go_down_max             ()
+#define go_up_max           (819)
+#define go_down_max         (409)
+#define stop                (614)
 
 //ADC configuration
 #define FLOOR1_LDR      ADC_CHANNEL_2   // LDR sensor (auto headlight) ADC1 channel 0
@@ -55,6 +56,7 @@ hd44780_t lcd = {
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
+#define ACTIVE          1
 
 //Global boolean values
 bool floor1_present = true;
@@ -72,7 +74,7 @@ bool floor3_select = false;
 static void button_config(void);  
 static void ADC_config(void);
 static void ledc_initialize(void);
-static void input_task(void);
+static void input_task();
 static void servo_task(void);
 static void floor_logic(void);
 
@@ -220,4 +222,25 @@ void ledc_initialize(void)
     ledc_channel_config(&ledc_channel);
 }
 
+void input_task (void *pvParameter) {
+    while(1){
+        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) 
+        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) 
+        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) 
+        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) 
+        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) 
+        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) 
+        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) 
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
 
+
+
+
+}
+
+void servo_task (void *pvParameter) {
+}
+
+void floor_logic (void *pvParameter) {
+}
