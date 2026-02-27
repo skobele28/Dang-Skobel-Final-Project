@@ -56,6 +56,7 @@ hd44780_t lcd = {
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
+adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
 #define ACTIVE          1
 
 //Global boolean values
@@ -75,8 +76,8 @@ static void button_config(void);
 static void ADC_config(void);
 static void ledc_initialize(void);
 static void input_task();
-static void servo_task(void);
-static void floor_logic(void);
+static void servo_task();
+static void floor_logic();
 
 void app_main(void)
 {
@@ -190,7 +191,6 @@ void ADC_config(void){
         .bitwidth = BITWIDTH
     };
                                                       // Calibration config
-    adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
     adc_cali_create_scheme_curve_fitting                // Populate cal handle
     (&cali_config, &adc2_cali_chan_handle);
 }
@@ -215,7 +215,7 @@ void ledc_initialize(void)
         .channel        = LEDC_CHANNEL,
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO,z
+        .gpio_num       = LEDC_OUTPUT_IO,
         .duty           = 0, // Set duty to 0%
         .hpoint         = 0
     };
