@@ -22,7 +22,21 @@
 #define TEMP_SENSOR     GPIO_NUM_8
 #define FIRE_SYSTEM     GPIO_NUM_9
 
-//LCD pins are inside the LCD init function
+//LCD structure, including GPIOs
+hd44780_t lcd = {
+    .write_cb = NULL,
+    .font = HD44780_FONT_5X8,
+    .lines = 2,
+    .pins = {
+        .rs = GPIO_NUM_1,                           // GPIO for Register Select
+        .e  = GPIO_NUM_48,                           // GPIO for enable
+        .d4 = GPIO_NUM_35,                           // GPIO for data 4
+        .d5 = GPIO_NUM_36,                          // GPIO for data 5
+        .d6 = GPIO_NUM_37,                          // GPIO for data 6
+        .d7 = GPIO_NUM_38,                          // GPIO for data 7
+        .bl = HD44780_NOT_USED
+    }
+};
 
 //LEDC configuration
 #define LEDC_TIMER          LEDC_TIMER_0
@@ -34,17 +48,29 @@
 #define go_up_max               ()
 #define go_down_max             ()
 
+//ADC configuration
 #define FLOOR1_LDR      ADC_CHANNEL_2   // LDR sensor (auto headlight) ADC1 channel 0
 #define FLOOR2_LDR      ADC_CHANNEL_1   // LDR sensor (auto headlight) ADC1 channel 0
 #define FLOOR3_LDR      ADC_CHANNEL_0   // LDR sensor (auto headlight) ADC1 channel 0
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
-
+adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 
 //Global boolean values
+bool floor1_present = true;
+bool floor2_present = false;
+bool floor3_present = false;
+bool floor1_callup = false;
+bool floor2_calldown = false;
+bool floor2_callup = false;
+bool floor3_calldown = false;
+bool floor1_select = false;
+bool floor2_select = false;
+bool floor3_select = false;
 
 //function prototypes
 static void button_config(void);  
+static void ADC_config(void);
 static void ledc_initialize(void);
 static void input_task(void);
 static void servo_task(void);
@@ -54,25 +80,8 @@ void app_main(void)
 {
 
     button_config();
+    ADC_config();
     ledc_initialize();
-
-    //LCD structure, including GPIOs
-    hd44780_t lcd = {
-        .write_cb = NULL,
-        .font = HD44780_FONT_5X8,
-        .lines = 2,
-        .pins = {
-            .rs = GPIO_NUM_1,                           // GPIO for Register Select
-            .e  = GPIO_NUM_48,                           // GPIO for enable
-            .d4 = GPIO_NUM_35,                           // GPIO for data 4
-            .d5 = GPIO_NUM_36,                          // GPIO for data 5
-            .d6 = GPIO_NUM_37,                          // GPIO for data 6
-            .d7 = GPIO_NUM_38,                          // GPIO for data 7
-            .bl = HD44780_NOT_USED
-        }
-    };
-
-    // initialize lcd
     ESP_ERROR_CHECK(hd44780_init(&lcd));
 
     // adc oneshot read and calibration configuration
@@ -82,46 +91,6 @@ void app_main(void)
     int floor2_adc_mV;                     // LDR ADC reading (mV)
     int floor3_adc_bits;
     int floor3_adc_mV;
-
-    adc_oneshot_unit_init_cfg_t init_config2 = {
-        .unit_id = ADC_UNIT_2,
-    };                                                  // Unit configuration
-    adc_oneshot_unit_handle_t adc2_handle;              // Unit handle
-    adc_oneshot_new_unit(&init_config2, &adc2_handle);  // Populate unit handle
-
-    adc_oneshot_chan_cfg_t config = {
-        .atten = ADC_ATTEN,
-        .bitwidth = BITWIDTH
-    };                                                  // Channel config
-    adc_oneshot_config_channel                          // Configure channel
-    (adc2_handle, FLOOR1_LDR, &config);
-
-    adc_oneshot_config_channel
-    (adc2_handle, FLOOR2_LDR, &config);
-
-    adc_oneshot_config_channel
-    (adc2_handle, FLOOR3_LDR, &config);
-
-    adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = ADC_UNIT_2,
-        .chan = FLOOR1_LDR,
-        .atten = ADC_ATTEN,
-        .bitwidth = BITWIDTH
-    };                                                  // Calibration config
-    adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
-    adc_cali_create_scheme_curve_fitting                // Populate cal handle
-    (&cali_config, &adc2_cali_chan_handle);
-
-    bool floor1_present = true;
-    bool floor2_present = false;
-    bool floor3_present = false;
-    bool floor1_callup = false;
-    bool floor2_calldown = false;
-    bool floor2_callup = false;
-    bool floor3_calldown = false;
-    bool floor1_select = false;
-    bool floor2_select = false;
-    bool floor3_select = false;
 
     while (1){
         
@@ -192,6 +161,38 @@ void button_config(void){
     gpio_pulldown_en(FLOOR3_CALLDOWN);
 }
 
+// function to configure and initialize ADC
+void ADC_config(void){
+    adc_oneshot_unit_init_cfg_t init_config2 = {
+        .unit_id = ADC_UNIT_2,
+    };                                                  // Unit configuration
+    adc_oneshot_new_unit(&init_config2, &adc2_handle);  // Populate unit handle
+
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN,
+        .bitwidth = BITWIDTH
+    };                                                  // Channel config
+    adc_oneshot_config_channel                          // Configure channel
+    (adc2_handle, FLOOR1_LDR, &config);
+
+    adc_oneshot_config_channel
+    (adc2_handle, FLOOR2_LDR, &config);
+
+    adc_oneshot_config_channel
+    (adc2_handle, FLOOR3_LDR, &config);
+
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_2,
+        .chan = FLOOR1_LDR,
+        .atten = ADC_ATTEN,
+        .bitwidth = BITWIDTH
+    };
+                                                      // Calibration config
+    adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
+    adc_cali_create_scheme_curve_fitting                // Populate cal handle
+    (&cali_config, &adc2_cali_chan_handle);
+}
+
 
 // function to configure and initialize ledc
 void ledc_initialize(void)
@@ -212,9 +213,11 @@ void ledc_initialize(void)
         .channel        = LEDC_CHANNEL,
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO,
+        .gpio_num       = LEDC_OUTPUT_IO,z
         .duty           = 0, // Set duty to 0%
         .hpoint         = 0
     };
     ledc_channel_config(&ledc_channel);
 }
+
+
