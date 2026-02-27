@@ -34,18 +34,24 @@
 #define go_up_max               ()
 #define go_down_max             ()
 
+#define FLOOR1_LDR      ADC_CHANNEL_2   // LDR sensor (auto headlight) ADC1 channel 0
+#define FLOOR2_LDR      ADC_CHANNEL_1   // LDR sensor (auto headlight) ADC1 channel 0
+#define FLOOR3_LDR      ADC_CHANNEL_0   // LDR sensor (auto headlight) ADC1 channel 0
+#define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
+#define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
+
 //LCD structure, including GPIOs
 hd44780_t lcd = {
     .write_cb = NULL,
     .font = HD44780_FONT_5X8,
     .lines = 2,
     .pins = {
-        .rs = GPIO_NUM_8,                           // GPIO for Register Select
-        .e  = GPIO_NUM_3,                           // GPIO for enable
-        .d4 = GPIO_NUM_9,                           // GPIO for data 4
-        .d5 = GPIO_NUM_10,                          // GPIO for data 5
-        .d6 = GPIO_NUM_11,                          // GPIO for data 6
-        .d7 = GPIO_NUM_12,                          // GPIO for data 7
+        .rs = GPIO_NUM_1,                           // GPIO for Register Select
+        .e  = GPIO_NUM_48,                           // GPIO for enable
+        .d4 = GPIO_NUM_35,                           // GPIO for data 4
+        .d5 = GPIO_NUM_36,                          // GPIO for data 5
+        .d6 = GPIO_NUM_37,                          // GPIO for data 6
+        .d7 = GPIO_NUM_38,                          // GPIO for data 7
         .bl = HD44780_NOT_USED
     }
 };
@@ -53,7 +59,7 @@ hd44780_t lcd = {
 //Global boolean values
 
 //function prototypes
-static void buttonConfig(void);  
+static void button_config(void);  
 static void ledc_initialize(void);
 static void input_task(void);
 static void servo_task(void);
@@ -62,10 +68,69 @@ static void floor_logic(void);
 void app_main(void)
 {
 
+    button_config();
+    ledc_initialize();
+
+    int floor1_adc_bits;                       // potentiometer ADC reading (bits)
+    int floor1_adc_mV;                         // potentiometer ADC reading (mV)
+    int floor2_adc_bits;                   // LDR ADC reading (bits)
+    int floor2_adc_mV;                     // LDR ADC reading (mV)
+    int floor3_adc_bits;
+    int floor3_adc_mV;
+
+    adc_oneshot_unit_init_cfg_t init_config2 = {
+        .unit_id = ADC_UNIT_2,
+    };                                                  // Unit configuration
+    adc_oneshot_unit_handle_t adc2_handle;              // Unit handle
+    adc_oneshot_new_unit(&init_config2, &adc2_handle);  // Populate unit handle
+
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN,
+        .bitwidth = BITWIDTH
+    };                                                  // Channel config
+    adc_oneshot_config_channel                          // Configure channel
+    (adc2_handle, FLOOR1_LDR, &config);
+
+    adc_oneshot_config_channel
+    (adc2_handle, FLOOR2_LDR, &config);
+
+    adc_oneshot_config_channel
+    (adc2_handle, FLOOR3_LDR, &config);
+
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_2,
+        .chan = FLOOR1_LDR,
+        .atten = ADC_ATTEN,
+        .bitwidth = BITWIDTH
+    };                                                  // Calibration config
+    adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
+    adc_cali_create_scheme_curve_fitting                // Populate cal handle
+    (&cali_config, &adc2_cali_chan_handle);
+
+    while (1){
+        adc_oneshot_read
+        (adc2_handle, FLOOR1_LDR, &floor1_adc_bits);                // Read ADC bits (floor 1 LDR)
+        
+        adc_cali_raw_to_voltage
+        (adc2_cali_chan_handle, floor1_adc_bits, &floor1_adc_mV);   // Convert to mV (floor 1 LDR)
+
+        adc_oneshot_read
+        (adc2_handle, FLOOR2_LDR, &floor2_adc_bits);                // Read ADC bits (floor 2 LDR)
+        
+        adc_cali_raw_to_voltage
+        (adc2_cali_chan_handle, floor2_adc_bits, &floor2_adc_mV);   // Convert to mV (floor 2 LDR)
+        
+        adc_oneshot_read
+        (adc2_handle, FLOOR3_LDR, &floor3_adc_bits);                // Read ADC bits (floor 3 LDR)
+        
+        adc_cali_raw_to_voltage
+        (adc2_cali_chan_handle, floor3_adc_bits, &floor3_adc_mV);   // Convert to mV (floor 3 LDR)
+    }
+
 }
 
 
-void buttonConfig(void){
+void button_config(void){
     //Reset pins
     gpio_reset_pin(FLOOR1_SELECT);
     gpio_reset_pin(FLOOR2_SELECT);
@@ -88,7 +153,7 @@ void buttonConfig(void){
     gpio_set_direction(TEMP_SENSOR, GPIO_MODE_INPUT);
     gpio_set_direction(FIRE_SYSTEM, GPIO_MODE_OUTPUT);
 
-    //Configure pullup/down
+    //Configure pulldown
     gpio_pulldown_en(FLOOR1_SELECT);
     gpio_pulldown_en(FLOOR2_SELECT);
     gpio_pulldown_en(FLOOR3_SELECT);
