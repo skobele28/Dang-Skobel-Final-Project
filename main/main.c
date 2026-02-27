@@ -19,7 +19,7 @@
 #define FLOOR2_CALLDOWN   GPIO_NUM_16
 #define FLOOR2_CALLUP GPIO_NUM_15
 #define FLOOR3_CALLDOWN GPIO_NUM_7
-#define TEMP_SENSOR     GPIO_NUM_18
+#define TEMP_SENSOR     GPIO_NUM_8
 #define FIRE_SYSTEM     GPIO_NUM_9
 
 //LCD pins are inside the LCD init function
@@ -27,7 +27,7 @@
 //LEDC configuration
 #define LEDC_TIMER          LEDC_TIMER_0
 #define LEDC_MODE           LEDC_LOW_SPEED_MODE
-#define LEDC_OUTPUT_IO      (16)        //GPIO for the LEDC .
+#define LEDC_OUTPUT_IO      (18)        //GPIO for the LEDC .
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
