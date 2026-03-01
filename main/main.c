@@ -12,12 +12,14 @@
 
 //Global variables
 #define floors              3
-#define Light_middle        1200
+//#define Light_middle        1200
+#define LDR_bright          3000
+#define LDR_dark            1500
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
 int LDR_values[floors+1] = {0};
-int curr_floor = 1;
+int current_floor = 1;
 int target_floor =1;
 
 //Pins declaration
@@ -47,6 +49,14 @@ hd44780_t lcd = {
     }
 };
 
+char LCD_string[20];
+static const uint8_t char_data[] =
+{
+    0x04, 0x0E, 0x15, 0x04, 0x04, 0x04, 0x04, 0x04,
+    0x04, 0x04, 0x04, 0x04, 0x04, 0x15, 0x0E, 0x04
+};
+
+
 //LEDC configuration
 #define LEDC_TIMER          LEDC_TIMER_0
 #define LEDC_MODE           LEDC_LOW_SPEED_MODE
@@ -69,13 +79,13 @@ adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 static void button_config(void);  
 static void ADC_config(void);
 static void ledc_initialize(void);
-static void input_task();
-static void elevator_FSM();
-static void servo_task();
+static void input_task(void *pvParameter);
+static void elevator_FSM(void *pvParameter);
+static void servo_task(void *pvParameter);
 static bool all_zeroes(void);
 static bool req_up(void);
 static bool req_down(void);
-static bool floor_req();
+static bool floor_req(int f);
 
 void app_main(void)
 {
@@ -84,6 +94,8 @@ void app_main(void)
     ADC_config();
     ledc_initialize();
     ESP_ERROR_CHECK(hd44780_init(&lcd));
+    hd44780_upload_character(&lcd, 0, char_data);
+    hd44780_upload_character(&lcd, 1, char_data + 8);
 
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
@@ -95,7 +107,12 @@ void app_main(void)
             int adc_bits;
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
             LDR_values[i] = adc_bits;
+            if (adc_bits < LDR_dark){
+                current_floor = i;
+            }
         }
+        hd44780_gotoxy(&lcd, 0, 0);
+        //hd44780_puts(&lcd, snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor));
     }
 }
 
@@ -195,7 +212,7 @@ typedef enum {
         Idle,
         Moveup,
         Movedown,
-        Slowdown,
+        Slow,
         Wait,
     } State_t;
     State_t state;
@@ -205,7 +222,7 @@ void elevator_FSM (void *pvParameter) {
     state = Idle;
     while (1) {
         last_state = state;
-        vTaskDelay (portTICK_PERIOD_MS);
+        vTaskDelay (10/portTICK_PERIOD_MS);
         switch (state) {
             case (Idle):
                 if (all_zeroes()){
@@ -220,6 +237,9 @@ void elevator_FSM (void *pvParameter) {
                 else {
                     state = Wait;
                 }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, " ");
+                break;
             
             case (Wait):
                 vTaskDelay (2000/portTICK_PERIOD_MS);
@@ -234,52 +254,87 @@ void elevator_FSM (void *pvParameter) {
                 else {
                     state = Idle;
                 }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, " ");
+                break;
             
             case (Moveup):
-                if (floor_req(curr_floor)) {
-                    state = Slowdown;
+                if (floor_req(current_floor)) {
+                    state = Slow;
                 }
                 else {
                     state = Moveup;
                 }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, "\x08");
+                break;
 
             case (Movedown):
-                if (floor_req(curr_floor)) {
-                    state = Slowdown;
+                if (floor_req(current_floor)) {
+                    state = Slow;
                 }
                 else {
                     state = Movedown;
                 }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, "\x09");
+                break;
             
-            case (Slowdown):
-                //Change state to stop when the LDR detect bright light again.
+            case (Slow):
+                if(LDR_values[target_floor] > LDR_bright){
+                    state = Idle;
+                }
+                else{
+                    state = Slow;
+                }
+                break;
+            //Change state to stop when the LDR detect bright light again.
 
         }
     }
 }
 
 void servo_task (void *pvParameter) {
-    int duty = stop;
-    int last_duty = stop;
+    int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
+
     while (1){
-        vTaskDelay(portTICK_PERIOD_MS);
-        if (state == Idle || state == Wait) {
-            duty = stop;
+        vTaskDelay(10/portTICK_PERIOD_MS);
+        if ((state == Idle || state == Wait) && executed != 1) {
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            executed = 1;
         }
-        else if (state == Moveup) {
-            duty = go_up_max;
+        else if (state == Moveup && executed != 2) {
+            for(int i = stop; i <= go_up_max; i = i + 5){   // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 2;
         }
-        else if (state == Movedown) {
-            duty = go_down_max;
+        else if (state == Movedown && executed != 3) {
+            for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 3;
         }
+        else if (state == Slow && executed != 4) {
+            for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 5; i--){
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 4;
+        }
+
+        /* what is this for?
         else {
             duty = duty/2;
         }
-        if (last_duty != duty) {
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, duty);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            last_duty = duty;
-        }
+        */
+            
     }
 }
 
@@ -294,21 +349,21 @@ bool all_zeroes(void) {
 }
 
 bool req_up(void) {
-    for (int i = curr_floor +1; i <= floors; i++) {
+    for (int i = current_floor +1; i <= floors; i++) {
         if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
-            return false;
+            return true;
         }
     }
-    return true;
+    return false;
 }
 
 bool req_down(void) {
-    for (int i = curr_floor - 1; i > 0; i-=1) {
+    for (int i = current_floor - 1; i > 0; i--) {
         if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
-            return false;
+            return true;
         }
     }
-    return true;
+    return false;
 }
 
 bool floor_req(int f) {
