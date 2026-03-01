@@ -87,6 +87,12 @@ static bool req_up(void);
 static bool req_down(void);
 static bool floor_req(int f);
 
+void IRAM_ATTR gpio_isr_handler(void* arg){
+    if (gpio_get_level(TEMP_SENSOR)){
+        gpio_set_level(FIRE_SYSTEM, 1);
+    }
+}
+
 void app_main(void)
 {
 
@@ -101,6 +107,15 @@ void app_main(void)
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 4, NULL);
 
+    gpio_reset_pin(TEMP_SENSOR);
+    gpio_set_direction(TEMP_SENSOR, GPIO_MODE_OUTPUT);
+    gpio_pulldown_en(TEMP_SENSOR);
+    gpio_set_intr_type(TEMP_SENSOR, GPIO_INTR_POSEDGE);
+    gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
+
+    gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
+    gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
+
     while (1){
         // adc oneshot read for three LDRs
         for (int i=1; i<= floors; i++) {
@@ -113,6 +128,7 @@ void app_main(void)
         }
         hd44780_gotoxy(&lcd, 0, 0);
         //hd44780_puts(&lcd, snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor));
+
     }
 }
 
@@ -126,7 +142,6 @@ void button_config(void){
     gpio_reset_pin(FLOOR2_CALLDOWN);
     gpio_reset_pin(FLOOR2_CALLUP);
     gpio_reset_pin(FLOOR3_CALLDOWN);
-    gpio_reset_pin(TEMP_SENSOR);
     gpio_reset_pin(FIRE_SYSTEM);
 
     //Set directions
@@ -137,7 +152,6 @@ void button_config(void){
     gpio_set_direction(FLOOR2_CALLDOWN, GPIO_MODE_INPUT);
     gpio_set_direction(FLOOR2_CALLUP, GPIO_MODE_INPUT);
     gpio_set_direction(FLOOR3_CALLDOWN, GPIO_MODE_INPUT);
-    gpio_set_direction(TEMP_SENSOR, GPIO_MODE_INPUT);
     gpio_set_direction(FIRE_SYSTEM, GPIO_MODE_OUTPUT);
 
     //Configure pulldown
@@ -196,13 +210,38 @@ void ledc_initialize(void)
 
 void input_task (void *pvParameter) {
     while(1){
-        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) inside_req[1] = 1;
-        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) inside_req[2] = 1;
-        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) inside_req[3] = 1;
-        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) up_call[1] = 1;
-        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) up_call[2] = 1;
-        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) down_call[2] = 1;
-        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) down_call[3] = 1;
+        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) {
+            inside_req[1] = 1;
+            target_floor = 1;
+        }
+        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) {
+            inside_req[2] = 1;
+            target_floor = 2;
+        }
+        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) {
+            inside_req[3] = 1;
+            target_floor = 3;
+        }
+        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) {up_call[1] = 1;}
+        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) {up_call[2] = 1;}
+        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) {down_call[2] = 1;}
+        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) {down_call[3] = 1;}
+
+        /*if (current_floor == 1 && up_call[2] == 1){
+            target_floor = 2;
+        }
+        else if ((current_floor == 1 || current_floor == 2) && down_call[3] == 1){
+            target_floor = 3;
+        }
+        if(state = Movedown && inside_req[2] == 1){
+            target_floor = 2;
+        }
+        else{
+            target_floor = 1;
+        }
+        */
+
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
