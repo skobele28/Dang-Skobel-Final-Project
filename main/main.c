@@ -72,9 +72,10 @@ static void ledc_initialize(void);
 static void input_task();
 static void elevator_FSM();
 static void servo_task();
-bool all_zeroes();
-bool req_up(void);
-bool req_down(void);
+static bool all_zeroes(void);
+static bool req_up(void);
+static bool req_down(void);
+static bool floor_req();
 
 void app_main(void)
 {
@@ -170,7 +171,7 @@ void ledc_initialize(void)
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
         .gpio_num       = LEDC_OUTPUT_IO,
-        .duty           = 0, // Set duty to 0%
+        .duty           = stop, // Set duty to stop initially
         .hpoint         = 0
     };
     ledc_channel_config(&ledc_channel);
@@ -189,23 +190,25 @@ void input_task (void *pvParameter) {
     }
 }
 
-void elevator_FSM (void *pvParameter) {
-    typedef enum {
+
+typedef enum {
         Idle,
         Moveup,
         Movedown,
+        Slowdown,
         Wait,
     } State_t;
     State_t state;
     State_t last_state;
 
+void elevator_FSM (void *pvParameter) {
     state = Idle;
     while (1) {
         last_state = state;
         vTaskDelay (portTICK_PERIOD_MS);
         switch (state) {
             case (Idle):
-                if (all_zeroes(inside_req) && all_zeroes(up_call) && all_zeroes(down_call)){
+                if (all_zeroes()){
                     state = Idle;
                 }
                 else if (req_up()) {
@@ -214,37 +217,76 @@ void elevator_FSM (void *pvParameter) {
                 else if (req_down()) {
                     state = Movedown;
                 }
-                else if (up_call[curr_floor] == 1 || down_call[curr_floor] ==1 || inside_req[curr_floor] == 1) {
+                else {
                     state = Wait;
                 }
+            
             case (Wait):
-            vTaskDelay (2000/portTICK_PERIOD_MS);
-                if (req_up()) {
-                    if (last_state != Movedown) state = Moveup;
-                    else {
-                        if (req_down()) state = Movedown;
-                    }
+                vTaskDelay (2000/portTICK_PERIOD_MS);
+                if (last_state == Moveup) {
+                    if (req_up()) state = Moveup;
+                    else if (req_down()) state = Movedown;
+                }
+                else if (last_state == Movedown) {
+                    if (req_down()) state = Movedown;
+                    else if (req_up()) state = Moveup;
                 }
                 else {
-                    if (req_down()) state = Movedown;
-                    else state = Idle;
+                    state = Idle;
                 }
+            
             case (Moveup):
+                if (floor_req(curr_floor)) {
+                    state = Slowdown;
+                }
+                else {
+                    state = Moveup;
+                }
 
             case (Movedown):
+                if (floor_req(curr_floor)) {
+                    state = Slowdown;
+                }
+                else {
+                    state = Movedown;
+                }
+            
+            case (Slowdown):
+                //Change state to stop when the LDR detect bright light again.
 
         }
     }
 }
 
 void servo_task (void *pvParameter) {
-    
+    int duty = stop;
+    int last_duty = stop;
+    while (1){
+        vTaskDelay(portTICK_PERIOD_MS);
+        if (state == Idle || state == Wait) {
+            duty = stop;
+        }
+        else if (state == Moveup) {
+            duty = go_up_max;
+        }
+        else if (state == Movedown) {
+            duty = go_down_max;
+        }
+        else {
+            duty = duty/2;
+        }
+        if (last_duty != duty) {
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, duty);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            last_duty = duty;
+        }
+    }
 }
 
 
-bool all_zeros(int arr[]) {
+bool all_zeroes(void) {
     for (int i = 1; i <= floors; i++) {
-        if (arr[i] != 0) {
+        if (inside_req[i] != 0 || up_call[i] != 0 || down_call[i] != 0) {
             return false;
         }
     }
@@ -267,4 +309,11 @@ bool req_down(void) {
         }
     }
     return true;
+}
+
+bool floor_req(int f) {
+    if (up_call[f] == 1 || down_call[f] ==1 || inside_req[f] == 1) {
+        return true;
+    }
+    return false;
 }
