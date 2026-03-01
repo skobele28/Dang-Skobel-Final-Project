@@ -13,10 +13,12 @@
 //Global variables
 #define floors              3
 #define Light_middle        1200
+int inside_req[floors+1] = {0};
+int up_call [floors+1] = {0};
+int down_call [floors+1] = {0};
 int LDR_values[floors+1] = {0};
 int curr_floor = 1;
-int target_floor=1;
-
+int target_floor =1;
 
 //Pins declaration
 #define FLOOR1_SELECT       GPIO_NUM_6           
@@ -63,25 +65,16 @@ int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 #define ACTIVE          1
 
-//Global boolean values
-bool floor1_present = true;
-bool floor2_present = false;
-bool floor3_present = false;
-bool floor1_callup = false;
-bool floor2_calldown = false;
-bool floor2_callup = false;
-bool floor3_calldown = false;
-bool floor1_select = false;
-bool floor2_select = false;
-bool floor3_select = false;
-
 //function prototypes
 static void button_config(void);  
 static void ADC_config(void);
 static void ledc_initialize(void);
 static void input_task();
+static void elevator_FSM();
 static void servo_task();
-static void floor_logic();
+bool all_zeroes();
+bool req_up(void);
+bool req_down(void);
 
 void app_main(void)
 {
@@ -93,7 +86,7 @@ void app_main(void)
 
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
-    xTaskCreate(floor_logic, "Floor Logic", 2048, NULL, 5, NULL);
+    xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 4, NULL);
 
     while (1){
         // adc oneshot read for three LDRs
@@ -102,15 +95,6 @@ void app_main(void)
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
             LDR_values[i] = adc_bits;
         }
-
-        // initialize variables in relation to GPIO pin inputs (pushbuttons)
-        floor1_callup = gpio_get_level(FLOOR1_CALLUP)==1;
-        floor2_calldown = gpio_get_level(FLOOR2_CALLDOWN)==1;
-        floor2_callup = gpio_get_level(FLOOR2_CALLUP)==1;
-        floor3_calldown = gpio_get_level(FLOOR3_CALLDOWN)==1;
-        floor1_select = gpio_get_level(FLOOR1_SELECT)==1;
-        floor2_select = gpio_get_level(FLOOR2_SELECT)==1;
-        floor3_select = gpio_get_level(FLOOR3_SELECT)==1;
     }
 }
 
@@ -194,71 +178,93 @@ void ledc_initialize(void)
 
 void input_task (void *pvParameter) {
     while(1){
-        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) 
-        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) 
-        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) 
-        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) 
-        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) 
-        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) 
-        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) 
+        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) inside_req[1] = 1;
+        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) inside_req[2] = 1;
+        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) inside_req[3] = 1;
+        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) up_call[1] = 1;
+        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) up_call[2] = 1;
+        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) down_call[2] = 1;
+        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) down_call[3] = 1;
         vTaskDelay(pdMS_TO_TICKS(20));
     }
+}
 
+void elevator_FSM (void *pvParameter) {
+    typedef enum {
+        Idle,
+        Moveup,
+        Movedown,
+        Wait,
+    } State_t;
+    State_t state;
+    State_t last_state;
 
+    state = Idle;
+    while (1) {
+        last_state = state;
+        vTaskDelay (portTICK_PERIOD_MS);
+        switch (state) {
+            case (Idle):
+                if (all_zeroes(inside_req) && all_zeroes(up_call) && all_zeroes(down_call)){
+                    state = Idle;
+                }
+                else if (req_up()) {
+                    state = Moveup;
+                }
+                else if (req_down()) {
+                    state = Movedown;
+                }
+                else if (up_call[curr_floor] == 1 || down_call[curr_floor] ==1 || inside_req[curr_floor] == 1) {
+                    state = Wait;
+                }
+            case (Wait):
+            vTaskDelay (2000/portTICK_PERIOD_MS);
+                if (req_up()) {
+                    if (last_state != Movedown) state = Moveup;
+                    else {
+                        if (req_down()) state = Movedown;
+                    }
+                }
+                else {
+                    if (req_down()) state = Movedown;
+                    else state = Idle;
+                }
+            case (Moveup):
 
+            case (Movedown):
 
+        }
+    }
 }
 
 void servo_task (void *pvParameter) {
-    while (1)
-    {
-        if (target_floor == curr_floor) {
-            vTaskDelay (portTICK_PERIOD_MS);
-        }
-
-        else if (target_floor > curr_floor) {
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_up_max);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            while (LDR_values[target_floor] >= Light_middle) {
-                vTaskDelay(portTICK_PERIOD_MS);
-            }
-            while (LDR_values[target_floor] <= Light_middle) {
-                ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_up_max/2);
-                ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            } 
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-        }
-
-        else {
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_down_max);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            while (LDR_values[target_floor] >= Light_middle) {
-                vTaskDelay(portTICK_PERIOD_MS);
-            }
-            while (LDR_values[target_floor] <= Light_middle) {
-                ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_down_max/2);
-                ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            } 
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-        }
-    }
+    
 }
 
-void floor_logic (void *pvParameter) {
-    /*typedef enum {
-        Floor1_idle,
-        Floor2_idle,
-        Floor3_idle,
-        Floor1_2,
-        Floor1_3,
-        Floor1_2_3,
-        Floor2_1, 
-        Floor2_3,
-        Floor3_1,
-        Floor3_2,
-        Floor3_2_1,
-    } State_t;*/
 
+bool all_zeros(int arr[]) {
+    for (int i = 1; i <= floors; i++) {
+        if (arr[i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool req_up(void) {
+    for (int i = curr_floor +1; i <= floors; i++) {
+        if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool req_down(void) {
+    for (int i = curr_floor - 1; i > 0; i-=1) {
+        if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
+            return false;
+        }
+    }
+    return true;
 }
