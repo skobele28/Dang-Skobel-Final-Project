@@ -1,9 +1,9 @@
 #include "freertos/FreeRTOS.h"
 #include <freertos/task.h>
 #include <sys/time.h>
-#include "../components/LCD/esp-idf-lib__esp_idf_lib_helpers/esp_idf_lib_helpers.h"
-#include "../components/LCD/esp-idf-lib__hd44780/hd44780.h"
-#include "../components/temp_sensor/DHT.h"
+#include "esp_idf_lib_helpers.h"
+#include "hd44780.h"
+#include "dht.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include "driver/gpio.h"
