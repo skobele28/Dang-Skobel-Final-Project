@@ -11,16 +11,23 @@
 #include "driver/ledc.h"
 
 //Global variables
+#define floors              3
+#define Light_middle        1200
+int LDR_values[floors+1] = {0};
+int curr_floor = 1;
+int target_floor=1;
+
+
 //Pins declaration
-#define FLOOR1_SELECT   GPIO_NUM_6           
-#define FLOOR2_SELECT   GPIO_NUM_5
-#define FLOOR3_SELECT   GPIO_NUM_4
-#define FLOOR1_CALLUP   GPIO_NUM_17
-#define FLOOR2_CALLDOWN   GPIO_NUM_16
-#define FLOOR2_CALLUP GPIO_NUM_15
-#define FLOOR3_CALLDOWN GPIO_NUM_7
-#define TEMP_SENSOR     GPIO_NUM_8
-#define FIRE_SYSTEM     GPIO_NUM_9
+#define FLOOR1_SELECT       GPIO_NUM_6           
+#define FLOOR2_SELECT       GPIO_NUM_5
+#define FLOOR3_SELECT       GPIO_NUM_4
+#define FLOOR1_CALLUP       GPIO_NUM_17
+#define FLOOR2_CALLDOWN     GPIO_NUM_16
+#define FLOOR2_CALLUP       GPIO_NUM_15
+#define FLOOR3_CALLDOWN     GPIO_NUM_7
+#define TEMP_SENSOR         GPIO_NUM_8
+#define FIRE_SYSTEM         GPIO_NUM_9
 
 //LCD structure, including GPIOs
 hd44780_t lcd = {
@@ -50,13 +57,10 @@ hd44780_t lcd = {
 #define stop                (614)
 
 //ADC configuration
-#define FLOOR1_LDR      ADC_CHANNEL_2   // LDR sensor (auto headlight) ADC1 channel 0
-#define FLOOR2_LDR      ADC_CHANNEL_1   // LDR sensor (auto headlight) ADC1 channel 0
-#define FLOOR3_LDR      ADC_CHANNEL_0   // LDR sensor (auto headlight) ADC1 channel 0
+int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
-adc_cali_handle_t adc2_cali_chan_handle;            // Calibration handle
 #define ACTIVE          1
 
 //Global boolean values
@@ -87,35 +91,17 @@ void app_main(void)
     ledc_initialize();
     ESP_ERROR_CHECK(hd44780_init(&lcd));
 
-    // adc oneshot read and calibration configuration
-    int floor1_adc_bits;                       // potentiometer ADC reading (bits)
-    int floor1_adc_mV;                         // potentiometer ADC reading (mV)
-    int floor2_adc_bits;                   // LDR ADC reading (bits)
-    int floor2_adc_mV;                     // LDR ADC reading (mV)
-    int floor3_adc_bits;
-    int floor3_adc_mV;
+    xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
+    xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
+    xTaskCreate(floor_logic, "Floor Logic", 2048, NULL, 5, NULL);
 
     while (1){
-        
         // adc oneshot read for three LDRs
-        adc_oneshot_read
-        (adc2_handle, FLOOR1_LDR, &floor1_adc_bits);                // Read ADC bits (floor 1 LDR)
-        
-        adc_cali_raw_to_voltage
-        (adc2_cali_chan_handle, floor1_adc_bits, &floor1_adc_mV);   // Convert to mV (floor 1 LDR)
-
-        adc_oneshot_read
-        (adc2_handle, FLOOR2_LDR, &floor2_adc_bits);                // Read ADC bits (floor 2 LDR)
-        
-        adc_cali_raw_to_voltage
-        (adc2_cali_chan_handle, floor2_adc_bits, &floor2_adc_mV);   // Convert to mV (floor 2 LDR)
-        
-        adc_oneshot_read
-        (adc2_handle, FLOOR3_LDR, &floor3_adc_bits);                // Read ADC bits (floor 3 LDR)
-        
-        adc_cali_raw_to_voltage
-        (adc2_cali_chan_handle, floor3_adc_bits, &floor3_adc_mV);   // Convert to mV (floor 3 LDR)
-    
+        for (int i=1; i<= floors; i++) {
+            int adc_bits;
+            adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
+            LDR_values[i] = adc_bits;
+        }
 
         // initialize variables in relation to GPIO pin inputs (pushbuttons)
         floor1_callup = gpio_get_level(FLOOR1_CALLUP)==1;
@@ -125,8 +111,6 @@ void app_main(void)
         floor1_select = gpio_get_level(FLOOR1_SELECT)==1;
         floor2_select = gpio_get_level(FLOOR2_SELECT)==1;
         floor3_select = gpio_get_level(FLOOR3_SELECT)==1;
-
-
     }
 }
 
@@ -175,24 +159,10 @@ void ADC_config(void){
         .atten = ADC_ATTEN,
         .bitwidth = BITWIDTH
     };                                                  // Channel config
-    adc_oneshot_config_channel                          // Configure channel
-    (adc2_handle, FLOOR1_LDR, &config);
-
-    adc_oneshot_config_channel
-    (adc2_handle, FLOOR2_LDR, &config);
-
-    adc_oneshot_config_channel
-    (adc2_handle, FLOOR3_LDR, &config);
-
-    adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = ADC_UNIT_2,
-        .chan = FLOOR1_LDR,
-        .atten = ADC_ATTEN,
-        .bitwidth = BITWIDTH
-    };
-                                                      // Calibration config
-    adc_cali_create_scheme_curve_fitting                // Populate cal handle
-    (&cali_config, &adc2_cali_chan_handle);
+    
+    for (int i=1; i<= floors; i++) {
+        adc_oneshot_config_channel (adc2_handle, FLOOR_LDR[i], &config);
+    }
 }
 
 
@@ -240,7 +210,55 @@ void input_task (void *pvParameter) {
 }
 
 void servo_task (void *pvParameter) {
+    while (1)
+    {
+        if (target_floor == curr_floor) {
+            vTaskDelay (portTICK_PERIOD_MS);
+        }
+
+        else if (target_floor > curr_floor) {
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_up_max);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            while (LDR_values[target_floor] >= Light_middle) {
+                vTaskDelay(portTICK_PERIOD_MS);
+            }
+            while (LDR_values[target_floor] <= Light_middle) {
+                ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_up_max/2);
+                ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            } 
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+        }
+
+        else {
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_down_max);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            while (LDR_values[target_floor] >= Light_middle) {
+                vTaskDelay(portTICK_PERIOD_MS);
+            }
+            while (LDR_values[target_floor] <= Light_middle) {
+                ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, go_down_max/2);
+                ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            } 
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+        }
+    }
 }
 
 void floor_logic (void *pvParameter) {
+    /*typedef enum {
+        Floor1_idle,
+        Floor2_idle,
+        Floor3_idle,
+        Floor1_2,
+        Floor1_3,
+        Floor1_2_3,
+        Floor2_1, 
+        Floor2_3,
+        Floor3_1,
+        Floor3_2,
+        Floor3_2_1,
+    } State_t;*/
+
 }
