@@ -12,7 +12,7 @@
 
 //Global variables
 #define floors              3
-#define LDR_mid            2100
+#define LDR_mid            1500
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
@@ -106,7 +106,6 @@ void app_main(void)
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
-    //xTaskCreate(dht_read, "Temperature Task", 4096, NULL, 6, NULL);
     //gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
 
     //gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
@@ -118,14 +117,13 @@ void app_main(void)
             int adc_bits;
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
             LDR_values[i] = adc_bits;
-            if (adc_bits < LDR_mid|| i != current_floor){
+            if (adc_bits < LDR_mid && i != current_floor){
                 current_floor = i;
             }
         }
         hd44780_gotoxy(&lcd, 0, 0);
         snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
         hd44780_puts(&lcd, LCD_string);
-        printf ("%d\n", LDR_values[1]);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -228,7 +226,7 @@ void elevator_FSM (void *pvParameter) {
             
             case (Slow):
             printf ("Slow\n");
-                if(LDR_values[current_floor] > LDR_mid{
+                if(LDR_values[current_floor] > LDR_mid){
                     state = Wait;
                 }
                 else{
