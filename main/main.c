@@ -43,7 +43,7 @@ hd44780_t lcd = {
         .d4 = GPIO_NUM_35,                           // GPIO for data 4
         .d5 = GPIO_NUM_36,                          // GPIO for data 5
         .d6 = GPIO_NUM_37,                          // GPIO for data 6
-        .d7 = GPIO_NUM_38,                          // GPIO for data 7
+        .d7 = GPIO_NUM_2,                          // GPIO for data 7
         .bl = HD44780_NOT_USED
     }
 };
@@ -85,7 +85,6 @@ static void ledc_initialize(void);
 static void input_task(void *pvParameter);
 static void elevator_FSM(void *pvParameter);
 static void servo_task(void *pvParameter);
-static void dht_read(void *pvParameter);
 static bool all_zeroes(void);
 static bool req_up(void);
 static bool req_down(void);
