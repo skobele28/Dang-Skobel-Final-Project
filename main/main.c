@@ -126,7 +126,8 @@ void app_main(void)
             }
         }
         hd44780_gotoxy(&lcd, 0, 0);
-        //hd44780_puts(&lcd, snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor));
+        snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
+        hd44780_puts(&lcd, LCD_string);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -224,7 +225,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Slow):
-                if(LDR_values[target_floor] > LDR_bright){
+                if(LDR_values[current_floor] > LDR_bright){
                     state = Wait;
                 }
                 else{
@@ -270,21 +271,6 @@ void servo_task (void *pvParameter) {
             }
             executed = 4;
         }   
-    }
-}
-
-
-void dht_read(void *pvParameter) {
-    float temperature, humidity;
-    gpio_set_pull_mode(TEMP_SENSOR, GPIO_PULLUP_ONLY);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    while (1)
-    {
-        if (dht_read_float_data(SENSOR_TYPE, TEMP_SENSOR, &humidity, &temperature) == ESP_OK)
-            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
-        else
-            printf("Could not read data from sensor\n");
-        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
 
