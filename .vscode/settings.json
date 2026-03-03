@@ -14,5 +14,6 @@
     "--query-driver=**",
     "--compile-commands-dir=/Users/erika/esp/Dang-Skobel Final Project/build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.portWin": "COM8"
 }

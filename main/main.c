@@ -75,6 +75,10 @@ int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 #define ACTIVE          1
 
+//DHT config
+#define SENSOR_TYPE DHT_TYPE_AM2301
+
+
 //function prototypes
 static void button_config(void);  
 static void ADC_config(void);
@@ -82,16 +86,17 @@ static void ledc_initialize(void);
 static void input_task(void *pvParameter);
 static void elevator_FSM(void *pvParameter);
 static void servo_task(void *pvParameter);
+static void dht_read(void *pvParameter);
 static bool all_zeroes(void);
 static bool req_up(void);
 static bool req_down(void);
 static bool floor_req(int f);
 
-void IRAM_ATTR gpio_isr_handler(void* arg){
+/*void IRAM_ATTR gpio_isr_handler(void* arg){
     if (gpio_get_level(TEMP_SENSOR)){
         gpio_set_level(FIRE_SYSTEM, 1);
     }
-}
+}*/
 
 void app_main(void)
 {
@@ -105,7 +110,8 @@ void app_main(void)
 
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
-    xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 4, NULL);
+    xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
+    xTaskCreate(dht_read, "Temperature Task", 2048, NULL, 6, NULL);
 
     gpio_reset_pin(TEMP_SENSOR);
     gpio_set_direction(TEMP_SENSOR, GPIO_MODE_OUTPUT);
@@ -113,8 +119,8 @@ void app_main(void)
     gpio_set_intr_type(TEMP_SENSOR, GPIO_INTR_POSEDGE);
     gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
 
-    gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
-    gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
+    //gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
+    //gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
 
     while (1){
         // adc oneshot read for three LDRs
@@ -128,7 +134,7 @@ void app_main(void)
         }
         hd44780_gotoxy(&lcd, 0, 0);
         //hd44780_puts(&lcd, snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor));
-
+        vTaskDelay(portTICK_PERIOD_MS);
     }
 }
 
@@ -374,6 +380,19 @@ void servo_task (void *pvParameter) {
         }
         */
             
+    }
+}
+
+void dht_read(void *pvParameter) {
+    float temperature, humidity;
+    gpio_set_pull_mode(TEMP_SENSOR, GPIO_PULLUP_ONLY);
+    while (1)
+    {
+        if (dht_read_float_data(SENSOR_TYPE, TEMP_SENSOR, &humidity, &temperature) == ESP_OK)
+            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
+        else
+            printf("Could not read data from sensor\n");
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
 
