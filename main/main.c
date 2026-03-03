@@ -20,7 +20,6 @@ int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
 int LDR_values[floors+1] = {0};
 int current_floor = 1;
-int target_floor =1;
 
 //Pins declaration
 #define FLOOR1_SELECT       GPIO_NUM_6           
@@ -100,7 +99,6 @@ static bool floor_req(int f);
 
 void app_main(void)
 {
-
     button_config();
     ADC_config();
     ledc_initialize();
@@ -111,13 +109,8 @@ void app_main(void)
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
-    xTaskCreate(dht_read, "Temperature Task", 2048, NULL, 6, NULL);
-
-    gpio_reset_pin(TEMP_SENSOR);
-    gpio_set_direction(TEMP_SENSOR, GPIO_MODE_OUTPUT);
-    gpio_pulldown_en(TEMP_SENSOR);
-    gpio_set_intr_type(TEMP_SENSOR, GPIO_INTR_POSEDGE);
-    gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
+    //xTaskCreate(dht_read, "Temperature Task", 4096, NULL, 6, NULL);
+    //gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
 
     //gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
     //gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
@@ -128,13 +121,170 @@ void app_main(void)
             int adc_bits;
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
             LDR_values[i] = adc_bits;
-            if (adc_bits < LDR_dark){
+            if (adc_bits < LDR_dark || i != current_floor){
                 current_floor = i;
             }
         }
         hd44780_gotoxy(&lcd, 0, 0);
         //hd44780_puts(&lcd, snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor));
-        vTaskDelay(portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+
+void input_task (void *pvParameter) {
+    while(1){
+        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) {inside_req[1] = 1;}
+        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) {inside_req[2] = 1;}
+        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) {inside_req[3] = 1;}
+        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) {up_call[1] = 1;}
+        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) {up_call[2] = 1;}
+        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) {down_call[2] = 1;}
+        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) {down_call[3] = 1;}
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+}
+
+
+typedef enum {
+        Idle,
+        Moveup,
+        Movedown,
+        Slow,
+        Wait,
+    } State_t;
+    State_t state;
+    State_t last_state;
+
+void elevator_FSM (void *pvParameter) {
+    state = Idle;
+    while (1) {
+        last_state = state;
+        vTaskDelay (10/portTICK_PERIOD_MS);
+        switch (state) {
+            case (Idle):
+                if (all_zeroes()){
+                    state = Idle;
+                }
+                else if (req_up()) {
+                    state = Moveup;
+                }
+                else if (req_down()) {
+                    state = Movedown;
+                }
+                else {
+                    state = Wait;
+                }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, " ");
+                break;
+            
+            case (Wait):
+                vTaskDelay (2000/portTICK_PERIOD_MS);
+                inside_req[current_floor] = 0;
+                if (last_state == Moveup) {
+                    if (req_up()) state = Moveup;
+                    else if (req_down()) state = Movedown;
+                    else state = Idle;
+                    up_call[current_floor] = 0;
+                }
+                else if (last_state == Movedown) {
+                    if (req_down()) state = Movedown;
+                    else if (req_up()) state = Moveup;
+                    else state = Idle;
+                    down_call[current_floor] = 0;
+                }
+                else {
+                    state = Idle;
+                }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, " ");
+                break;
+            
+            case (Moveup):
+                if (floor_req(current_floor)) {
+                    state = Slow;
+                }
+                else {
+                    state = Moveup;
+                }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, "\x08");
+                break;
+
+            case (Movedown):
+                if (floor_req(current_floor)) {
+                    state = Slow;
+                }
+                else {
+                    state = Movedown;
+                }
+                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_puts(&lcd, "\x09");
+                break;
+            
+            case (Slow):
+                if(LDR_values[target_floor] > LDR_bright){
+                    state = Wait;
+                }
+                else{
+                    state = Slow;
+                }
+                break;
+            //Change state to stop when the LDR detect bright light again.
+        }
+    }
+}
+
+
+void servo_task (void *pvParameter) {
+    int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
+    while (1){
+        vTaskDelay(20/portTICK_PERIOD_MS);
+        if ((state == Idle || state == Wait) && executed != 1) {
+            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
+            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
+            executed = 1;
+        }
+        else if (state == Moveup && executed != 2) {
+            for(int i = stop; i <= go_up_max; i = i + 5){   // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 2;
+        }
+        else if (state == Movedown && executed != 3) {
+            for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 3;
+        }
+        else if (state == Slow && executed != 4) {
+            for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 5; i--){
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            }
+            executed = 4;
+        }   
+    }
+}
+
+
+void dht_read(void *pvParameter) {
+    float temperature, humidity;
+    gpio_set_pull_mode(TEMP_SENSOR, GPIO_PULLUP_ONLY);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    while (1)
+    {
+        if (dht_read_float_data(SENSOR_TYPE, TEMP_SENSOR, &humidity, &temperature) == ESP_OK)
+            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
+        else
+            printf("Could not read data from sensor\n");
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
 
@@ -187,7 +337,6 @@ void ADC_config(void){
     }
 }
 
-
 // function to configure and initialize ledc
 void ledc_initialize(void)
 {
@@ -212,188 +361,6 @@ void ledc_initialize(void)
         .hpoint         = 0
     };
     ledc_channel_config(&ledc_channel);
-}
-
-void input_task (void *pvParameter) {
-    while(1){
-        if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) {
-            inside_req[1] = 1;
-            target_floor = 1;
-        }
-        if (gpio_get_level(FLOOR2_SELECT)==ACTIVE) {
-            inside_req[2] = 1;
-            target_floor = 2;
-        }
-        if (gpio_get_level(FLOOR3_SELECT)==ACTIVE) {
-            inside_req[3] = 1;
-            target_floor = 3;
-        }
-        if (gpio_get_level(FLOOR1_CALLUP)==ACTIVE) {up_call[1] = 1;}
-        if (gpio_get_level(FLOOR2_CALLUP)==ACTIVE) {up_call[2] = 1;}
-        if (gpio_get_level(FLOOR2_CALLDOWN)==ACTIVE) {down_call[2] = 1;}
-        if (gpio_get_level(FLOOR3_CALLDOWN)==ACTIVE) {down_call[3] = 1;}
-
-        /*if (current_floor == 1 && up_call[2] == 1){
-            target_floor = 2;
-        }
-        else if ((current_floor == 1 || current_floor == 2) && down_call[3] == 1){
-            target_floor = 3;
-        }
-        if(state = Movedown && inside_req[2] == 1){
-            target_floor = 2;
-        }
-        else{
-            target_floor = 1;
-        }
-        */
-
-
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-}
-
-
-typedef enum {
-        Idle,
-        Moveup,
-        Movedown,
-        Slow,
-        Wait,
-    } State_t;
-    State_t state;
-    State_t last_state;
-
-void elevator_FSM (void *pvParameter) {
-    state = Idle;
-    while (1) {
-        last_state = state;
-        vTaskDelay (10/portTICK_PERIOD_MS);
-        switch (state) {
-            case (Idle):
-                if (all_zeroes()){
-                    state = Idle;
-                }
-                else if (req_up()) {
-                    state = Moveup;
-                }
-                else if (req_down()) {
-                    state = Movedown;
-                }
-                else {
-                    state = Wait;
-                }
-                hd44780_gotoxy(&lcd, 14, 0);
-                hd44780_puts(&lcd, " ");
-                break;
-            
-            case (Wait):
-                vTaskDelay (2000/portTICK_PERIOD_MS);
-                if (last_state == Moveup) {
-                    if (req_up()) state = Moveup;
-                    else if (req_down()) state = Movedown;
-                }
-                else if (last_state == Movedown) {
-                    if (req_down()) state = Movedown;
-                    else if (req_up()) state = Moveup;
-                }
-                else {
-                    state = Idle;
-                }
-                hd44780_gotoxy(&lcd, 14, 0);
-                hd44780_puts(&lcd, " ");
-                break;
-            
-            case (Moveup):
-                if (floor_req(current_floor)) {
-                    state = Slow;
-                }
-                else {
-                    state = Moveup;
-                }
-                hd44780_gotoxy(&lcd, 14, 0);
-                hd44780_puts(&lcd, "\x08");
-                break;
-
-            case (Movedown):
-                if (floor_req(current_floor)) {
-                    state = Slow;
-                }
-                else {
-                    state = Movedown;
-                }
-                hd44780_gotoxy(&lcd, 14, 0);
-                hd44780_puts(&lcd, "\x09");
-                break;
-            
-            case (Slow):
-                if(LDR_values[target_floor] > LDR_bright){
-                    state = Idle;
-                }
-                else{
-                    state = Slow;
-                }
-                break;
-            //Change state to stop when the LDR detect bright light again.
-
-        }
-    }
-}
-
-void servo_task (void *pvParameter) {
-    int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
-
-    while (1){
-        vTaskDelay(10/portTICK_PERIOD_MS);
-        if ((state == Idle || state == Wait) && executed != 1) {
-            ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
-            ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            executed = 1;
-        }
-        else if (state == Moveup && executed != 2) {
-            for(int i = stop; i <= go_up_max; i = i + 5){   // increment duty count by 5
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
-            }
-            executed = 2;
-        }
-        else if (state == Movedown && executed != 3) {
-            for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
-            }
-            executed = 3;
-        }
-        else if (state == Slow && executed != 4) {
-            for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 5; i--){
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
-            }
-            executed = 4;
-        }
-
-        /* what is this for?
-        else {
-            duty = duty/2;
-        }
-        */
-            
-    }
-}
-
-void dht_read(void *pvParameter) {
-    float temperature, humidity;
-    gpio_set_pull_mode(TEMP_SENSOR, GPIO_PULLUP_ONLY);
-    while (1)
-    {
-        if (dht_read_float_data(SENSOR_TYPE, TEMP_SENSOR, &humidity, &temperature) == ESP_OK)
-            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
-        else
-            printf("Could not read data from sensor\n");
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
 }
 
 
