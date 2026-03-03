@@ -12,9 +12,7 @@
 
 //Global variables
 #define floors              3
-//#define Light_middle        1200
-#define LDR_bright          3000
-#define LDR_dark            1500
+#define LDR_mid            2100
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
@@ -120,13 +118,14 @@ void app_main(void)
             int adc_bits;
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
             LDR_values[i] = adc_bits;
-            if (adc_bits < LDR_dark || i != current_floor){
+            if (adc_bits < LDR_mid|| i != current_floor){
                 current_floor = i;
             }
         }
         hd44780_gotoxy(&lcd, 0, 0);
         snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
         hd44780_puts(&lcd, LCD_string);
+        printf ("%d\n", LDR_values[1]);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -160,10 +159,10 @@ void elevator_FSM (void *pvParameter) {
     state = Idle;
     while (1) {
         last_state = state;
-        vTaskDelay (10/portTICK_PERIOD_MS);
+        vTaskDelay (20/portTICK_PERIOD_MS);
         switch (state) {
             case (Idle):
-            printf ("Idle");
+            printf ("Idle\n");
                 if (all_zeroes()){
                     state = Idle;
                 }
@@ -181,7 +180,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Wait):
-            printf ("Wait");
+            printf ("Wait\n");
                 vTaskDelay (2000/portTICK_PERIOD_MS);
                 inside_req[current_floor] = 0;
                 if (last_state == Moveup) {
@@ -204,7 +203,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Moveup):
-            printf ("Moveup");
+            printf ("Moveup\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -216,7 +215,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
 
             case (Movedown):
-            printf ("Movedown");
+            printf ("Movedown\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -228,8 +227,8 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Slow):
-            printf ("Slow");
-                if(LDR_values[current_floor] > LDR_bright){
+            printf ("Slow\n");
+                if(LDR_values[current_floor] > LDR_mid{
                     state = Wait;
                 }
                 else{
