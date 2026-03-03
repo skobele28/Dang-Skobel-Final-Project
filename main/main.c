@@ -163,6 +163,7 @@ void elevator_FSM (void *pvParameter) {
         vTaskDelay (10/portTICK_PERIOD_MS);
         switch (state) {
             case (Idle):
+            printf ("Idle");
                 if (all_zeroes()){
                     state = Idle;
                 }
@@ -180,6 +181,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Wait):
+            printf ("Wait");
                 vTaskDelay (2000/portTICK_PERIOD_MS);
                 inside_req[current_floor] = 0;
                 if (last_state == Moveup) {
@@ -202,6 +204,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Moveup):
+            printf ("Moveup");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -213,6 +216,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
 
             case (Movedown):
+            printf ("Movedown");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -224,6 +228,7 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Slow):
+            printf ("Slow");
                 if(LDR_values[current_floor] > LDR_bright){
                     state = Wait;
                 }
