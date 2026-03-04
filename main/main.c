@@ -12,7 +12,7 @@
 
 //Global variables
 #define floors              3
-#define LDR_mid            1500
+#define LDR_mid            2500
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
@@ -46,7 +46,7 @@ hd44780_t lcd = {
     }
 };
 
-char LCD_string[20];
+char LCD_string[8];
 static const uint8_t char_data[] =
 {
     0x04, 0x0E, 0x15, 0x04, 0x04, 0x04, 0x04, 0x04,
@@ -61,8 +61,8 @@ static const uint8_t char_data[] =
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up_max           (819)
-#define go_down_max         (409)
+#define go_up_max           (719)
+#define go_down_max         (509)
 #define stop                (614)
 
 //ADC configuration
@@ -88,11 +88,11 @@ static bool req_up(void);
 static bool req_down(void);
 static bool floor_req(int f);
 
-/*void IRAM_ATTR gpio_isr_handler(void* arg){
+void IRAM_ATTR gpio_isr_handler(void* arg){
     if (gpio_get_level(TEMP_SENSOR)){
         gpio_set_level(FIRE_SYSTEM, 1);
     }
-}*/
+}
 
 void app_main(void)
 {
@@ -106,10 +106,10 @@ void app_main(void)
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
-    //gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
+    gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
 
-    //gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
-    //gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
+    gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
+    gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
 
     while (1){
         // adc oneshot read for three LDRs
@@ -125,6 +125,7 @@ void app_main(void)
         snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
         hd44780_puts(&lcd, LCD_string);
         vTaskDelay(pdMS_TO_TICKS(100));
+        printf("%d, %d, %d\n", LDR_values[1], LDR_values[2], LDR_values[3]);
     }
 }
 
@@ -149,9 +150,11 @@ typedef enum {
         Movedown,
         Slow,
         Wait,
+        Fire,
     } State_t;
     State_t state;
     State_t last_state;
+int fire = 0;
 
 void elevator_FSM (void *pvParameter) {
     state = Idle;
@@ -161,6 +164,10 @@ void elevator_FSM (void *pvParameter) {
         switch (state) {
             case (Idle):
             printf ("Idle\n");
+                if (gpio_get_level(TEMP_SENSOR)){
+                    state = Fire;
+                    break;
+                }
                 if (all_zeroes()){
                     state = Idle;
                 }
@@ -179,6 +186,10 @@ void elevator_FSM (void *pvParameter) {
             
             case (Wait):
             printf ("Wait\n");
+                if (gpio_get_level(TEMP_SENSOR)){
+                    state = Fire;
+                    break;
+                }
                 vTaskDelay (2000/portTICK_PERIOD_MS);
                 inside_req[current_floor] = 0;
                 if (last_state == Moveup) {
@@ -203,6 +214,10 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Moveup):
+                if (gpio_get_level(TEMP_SENSOR)){
+                    state = Fire;
+                    break;
+                }
             printf ("Moveup\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
@@ -215,6 +230,10 @@ void elevator_FSM (void *pvParameter) {
                 break;
 
             case (Movedown):
+                if (gpio_get_level(TEMP_SENSOR)){
+                    state = Fire;
+                    break;
+                }
             printf ("Movedown\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
@@ -227,6 +246,10 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Slow):
+                if (gpio_get_level(TEMP_SENSOR)){
+                    state = Fire;
+                    break;
+                }
             printf ("Slow\n");
                 if(LDR_values[current_floor] > LDR_mid){
                     state = Wait;
@@ -236,6 +259,15 @@ void elevator_FSM (void *pvParameter) {
                 }
                 break;
             //Change state to stop when the LDR detect bright light again.
+
+            case (Fire):
+                gpio_set_level(FIRE_SYSTEM, !gpio_get_level(FIRE_SYSTEM));
+                if (fire == 0){
+                    inside_req[1] = 1;
+                    fire = 1;
+                }
+                vTaskDelay(500/portTICK_PERIOD_MS);
+                state = Fire;
         }
     }
 }
@@ -243,6 +275,9 @@ void elevator_FSM (void *pvParameter) {
 
 void servo_task (void *pvParameter) {
     int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
+    if(current_floor != 1) {
+        inside_req[1] = 1;
+    }
     while (1){
         vTaskDelay(20/portTICK_PERIOD_MS);
         if ((state == Idle || state == Wait) && executed != 1) {
@@ -268,21 +303,47 @@ void servo_task (void *pvParameter) {
         }
         else if (state == Slow && executed != 4) {
             if (executed == 2) {
-                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 20; i--){
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 10; i--){
                     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
                     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
                 }
             }
             if (executed == 3) {
-                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 20; i++){
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
                     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
                     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
                 }
             }
             executed = 4;
         }   
+        else if (state == Fire && executed != 6) {
+            if (executed != 5){
+                for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                }
+                executed = 5;
+            }
+            if (LDR_values[1] < LDR_mid){
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
+                    if (LDR_values[1] > LDR_mid){
+                        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, stop);
+                        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
+                        executed = 6;
+                        break;
+                    }
+
+                }
+            
+
+            }
+        }
     }
 }
 
