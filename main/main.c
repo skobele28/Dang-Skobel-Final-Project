@@ -266,7 +266,7 @@ void elevator_FSM (void *pvParameter) {
                     inside_req[1] = 1;
                     fire = 1;
                 }
-                vTaskDelay(500/portTICK_PERIOD_MS);
+                vTaskDelay(1000/portTICK_PERIOD_MS);
                 state = Fire;
         }
     }
