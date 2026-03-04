@@ -195,6 +195,8 @@ void elevator_FSM (void *pvParameter) {
                 }
                 else {
                     state = Idle;
+                    up_call[current_floor] = 0;
+                    down_call[current_floor]=0;
                 }
                 hd44780_gotoxy(&lcd, 14, 0);
                 hd44780_puts(&lcd, " ");
@@ -265,10 +267,19 @@ void servo_task (void *pvParameter) {
             executed = 3;
         }
         else if (state == Slow && executed != 4) {
-            for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 5; i--){
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            if (executed == 2) {
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 20; i--){
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                }
+            }
+            if (executed == 3) {
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 20; i++){
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                }
             }
             executed = 4;
         }   
