@@ -315,13 +315,15 @@ void servo_task (void *pvParameter) {
         }   
         else if (state == Fire) {
             if (current_floor == 1 && LDR_values[1] > LDR_mid) {vTaskDelay (pdMS_TO_TICKS(100000));}
-            else if (current_floor != 1 && executed != 5) {
-                for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            else if (current_floor != 1) {
+                if(executed !=5){
+                    for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
+                        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                        vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                    }
+                    executed = 5;
                 }
-                executed = 5;
             }
             else {
                 while (LDR_values[1] < LDR_mid) {
