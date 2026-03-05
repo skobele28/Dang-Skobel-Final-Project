@@ -3,7 +3,6 @@
 #include <sys/time.h>
 #include "esp_idf_lib_helpers.h"
 #include "hd44780.h"
-#include "dht.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include "driver/gpio.h"

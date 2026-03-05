@@ -16,4 +16,3 @@ dependencies:
   #   public: true
   esp-idf-lib/hd44780: '*'
   esp-idf-lib/esp_idf_lib_helpers: '*'
-  esp-idf-lib/dht: '*'
