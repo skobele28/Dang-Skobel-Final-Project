@@ -116,6 +116,8 @@ void app_main(void)
         hd44780_puts(&lcd, LCD_string);
         vTaskDelay(pdMS_TO_TICKS(100));
         printf("%d, %d, %d\n", LDR_values[1], LDR_values[2], LDR_values[3]);
+        int temp_sensor = gpio_get_level(TEMP_SENSOR);
+        printf("%d\n", temp_sensor);
     }
 }
 
@@ -145,6 +147,7 @@ typedef enum {
     State_t state;
     State_t last_state;
 int fire = 0;
+int blink = 1;
 
 void elevator_FSM (void *pvParameter) {
     state = Idle;
@@ -158,7 +161,7 @@ void elevator_FSM (void *pvParameter) {
                     state = Fire;
                     break;
                 }
-                if (all_zeroes()){
+                else if (all_zeroes()){
                     state = Idle;
                 }
                 else if (req_up()) {
@@ -251,7 +254,9 @@ void elevator_FSM (void *pvParameter) {
             //Change state to stop when the LDR detect bright light again.
 
             case (Fire):
-                gpio_set_level(FIRE_SYSTEM, !gpio_get_level(FIRE_SYSTEM));
+                printf("Fire state\n");
+                gpio_set_level(FIRE_SYSTEM, blink);
+                blink = !blink;
                 if (fire == 0){
                     inside_req[1] = 1;
                     fire = 1;
@@ -312,16 +317,16 @@ void servo_task (void *pvParameter) {
             if (current_floor == 1 && LDR_values[1] > LDR_mid) {vTaskDelay (pdMS_TO_TICKS(100000));}
             else if (current_floor != 1 && executed != 5) {
                 for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
                 }
                 executed = 5;
             }
             else {
                 while (LDR_values[1] < LDR_mid) {
                     if (executed != 6) {
-                        for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 30; i++){
+                        for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
                             ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
                             ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
                             vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
@@ -372,6 +377,7 @@ void button_config(void){
     gpio_reset_pin(FLOOR2_CALLDOWN);
     gpio_reset_pin(FLOOR2_CALLUP);
     gpio_reset_pin(FLOOR3_CALLDOWN);
+    gpio_reset_pin(TEMP_SENSOR);
     gpio_reset_pin(FIRE_SYSTEM);
 
     //Set directions
@@ -382,6 +388,7 @@ void button_config(void){
     gpio_set_direction(FLOOR2_CALLDOWN, GPIO_MODE_INPUT);
     gpio_set_direction(FLOOR2_CALLUP, GPIO_MODE_INPUT);
     gpio_set_direction(FLOOR3_CALLDOWN, GPIO_MODE_INPUT);
+    gpio_set_direction(TEMP_SENSOR, GPIO_MODE_INPUT);
     gpio_set_direction(FIRE_SYSTEM, GPIO_MODE_OUTPUT);
 
     //Configure pulldown
