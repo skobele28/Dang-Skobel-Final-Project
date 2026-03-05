@@ -10,7 +10,8 @@
 #include "esp_adc/adc_oneshot.h"
 #include "driver/ledc.h"
 
-//Global variables
+
+//Global variables -- Can change number of floors and the LDR value for middle light level
 #define floors              3
 #define LDR_mid            2500
 int inside_req[floors+1] = {0};
@@ -19,7 +20,8 @@ int down_call [floors+1] = {0};
 int LDR_values[floors+1] = {0};
 int current_floor = 1;
 
-//Pins declaration
+
+//Pins declaration  -- change the GPIO for each input/ output accordingly
 #define FLOOR1_SELECT       GPIO_NUM_6           
 #define FLOOR2_SELECT       GPIO_NUM_5
 #define FLOOR3_SELECT       GPIO_NUM_4
@@ -72,9 +74,6 @@ int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
 adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 #define ACTIVE          1
 
-//DHT config
-#define SENSOR_TYPE DHT_TYPE_AM2301
-
 
 //function prototypes
 static void button_config(void);  
@@ -88,11 +87,6 @@ static bool req_up(void);
 static bool req_down(void);
 static bool floor_req(int f);
 
-void IRAM_ATTR gpio_isr_handler(void* arg){
-    if (gpio_get_level(TEMP_SENSOR)){
-        gpio_set_level(FIRE_SYSTEM, 1);
-    }
-}
 
 void app_main(void)
 {
@@ -102,14 +96,10 @@ void app_main(void)
     ESP_ERROR_CHECK(hd44780_init(&lcd));
     hd44780_upload_character(&lcd, 0, char_data);
     hd44780_upload_character(&lcd, 1, char_data + 8);
-
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
-    gpio_install_isr_service(0); //Create global ISR that catches all GPIO interrupts
-
-    gpio_isr_handler_add(TEMP_SENSOR, gpio_isr_handler, NULL);
-    gpio_intr_enable(TEMP_SENSOR); // Enable interrupts on TEMP_SENSOR
+    
 
     while (1){
         // adc oneshot read for three LDRs
@@ -318,8 +308,34 @@ void servo_task (void *pvParameter) {
             }
             executed = 4;
         }   
-        else if (state == Fire && executed != 6) {
-            if (executed != 5){
+        else if (state == Fire) {
+            if (current_floor == 1 && LDR_values[1] > LDR_mid) {vTaskDelay (pdMS_TO_TICKS(100000));}
+            else if (current_floor != 1 && executed != 5) {
+                for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                }
+                executed = 5;
+            }
+            else {
+                while (LDR_values[1] < LDR_mid) {
+                    if (executed != 6) {
+                        for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 30; i++){
+                            ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
+                            ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
+                            vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
+                        }
+                        executed = 6;
+                    }
+                    vTaskDelay (pdMS_TO_TICKS(10));
+                }
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, stop);           
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  
+            }
+
+
+            /*if (executed != 5){
                 for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
                     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
                     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
@@ -327,6 +343,7 @@ void servo_task (void *pvParameter) {
                 }
                 executed = 5;
             }
+
             if (LDR_values[1] < LDR_mid){
                 for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
                     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
@@ -340,9 +357,7 @@ void servo_task (void *pvParameter) {
                     }
 
                 }
-            
-
-            }
+            }*/
         }
     }
 }
