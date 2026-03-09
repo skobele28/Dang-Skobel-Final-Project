@@ -12,7 +12,7 @@
 
 //Global variables -- Can change number of floors and the LDR value for middle light level
 #define floors              3
-#define LDR_mid            2500
+#define LDR_mid            1000
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
@@ -62,8 +62,8 @@ static const uint8_t char_data[] =
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up_max           (719)
-#define go_down_max         (509)
+#define go_up_max           (670) //(719)
+#define go_down_max         (540) //(509)
 #define stop                (614)
 
 //ADC configuration
