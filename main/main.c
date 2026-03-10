@@ -13,23 +13,23 @@
 //Global variables -- Can change number of floors and the LDR value for middle light level
 #define floors              3
 #define LDR_mid            1000
-int inside_req[floors+1] = {0};
-int up_call [floors+1] = {0};
-int down_call [floors+1] = {0};
-int LDR_values[floors+1] = {0};
-int current_floor = 1;
+int inside_req[floors+1] = {0};     // array for inside requests
+int up_call [floors+1] = {0};       // array for up-calls
+int down_call [floors+1] = {0};     // array for down-calls
+int LDR_values[floors+1] = {0};     // array for LDR values
+int current_floor = 1;              // initialize current floor as 1
 
 
 //Pins declaration  -- change the GPIO for each input/ output accordingly
-#define FLOOR1_SELECT       GPIO_NUM_6           
-#define FLOOR2_SELECT       GPIO_NUM_5
-#define FLOOR3_SELECT       GPIO_NUM_4
-#define FLOOR1_CALLUP       GPIO_NUM_17
-#define FLOOR2_CALLDOWN     GPIO_NUM_16
-#define FLOOR2_CALLUP       GPIO_NUM_15
-#define FLOOR3_CALLDOWN     GPIO_NUM_7
-#define TEMP_SENSOR         GPIO_NUM_8
-#define FIRE_SYSTEM         GPIO_NUM_9
+#define FLOOR1_SELECT       GPIO_NUM_6          // pushbutton inside elevator (floor 1)
+#define FLOOR2_SELECT       GPIO_NUM_5          // pushbutton inside elevator (floor 2)
+#define FLOOR3_SELECT       GPIO_NUM_4          // pushbutton inside elevator (floor 3)
+#define FLOOR1_CALLUP       GPIO_NUM_17         // pushbutton on floor one (callup)
+#define FLOOR2_CALLDOWN     GPIO_NUM_16         // pushbutton on floor two (calldown)
+#define FLOOR2_CALLUP       GPIO_NUM_15         // pushbutton on floor two (callup)
+#define FLOOR3_CALLDOWN     GPIO_NUM_7          // pushbutton on floor three (calldown)
+#define TEMP_SENSOR         GPIO_NUM_8          // infrared sensor
+#define FIRE_SYSTEM         GPIO_NUM_9          // output GPIO for fire system (LED, buzzer)
 
 //LCD structure, including GPIOs
 hd44780_t lcd = {
@@ -62,9 +62,9 @@ static const uint8_t char_data[] =
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
 #define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up_max           (670) //(719)
-#define go_down_max         (540) //(509)
-#define stop                (614)
+#define go_up_max           (670) // max speed going up
+#define go_down_max         (540) // max speed going down
+#define stop                (614) // stopped elevator duty cycle
 
 //ADC configuration
 int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
@@ -99,6 +99,18 @@ void app_main(void)
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
     
+    for (int i=1; i<= floors; i++) {
+            int adc_bits;
+            adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
+            LDR_values[i] = adc_bits;
+            if (adc_bits < LDR_mid && i != current_floor){
+                current_floor = i;
+            }
+    }
+    if (current_floor != 1){
+        inside_req[1] = 1;
+    }
+
 
     while (1){
         // adc oneshot read for three LDRs
@@ -269,9 +281,7 @@ void elevator_FSM (void *pvParameter) {
 
 void servo_task (void *pvParameter) {
     int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
-    if(current_floor != 1) {
-        inside_req[1] = 1;
-    }
+
     while (1){
         vTaskDelay(20/portTICK_PERIOD_MS);
         if ((state == Idle || state == Wait) && executed != 1) {
