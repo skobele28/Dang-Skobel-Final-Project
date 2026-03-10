@@ -11,16 +11,18 @@
 
 
 //Global variables -- Can change number of floors and the LDR value for middle light level
-#define floors              3
-#define LDR_mid            1200
+#define floors              3       // three-story elevator
+#define LDR_mid            1200     // LDR adc-bit value to separate light and dark (calibrated)
+// arrays for elevator pushbutton requests and LDR values, initialize all to 0
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
 int LDR_values[floors+1] = {0};
-int current_floor = 1;
+
+int current_floor = 1;              // variable to track current floor, initialize to floor 1
 
 
-//Pins declaration  -- change the GPIO for each input/ output accordingly
+//Pins declaration -- change the GPIO for each input/ output accordingly
 #define FLOOR1_SELECT       GPIO_NUM_6           
 #define FLOOR2_SELECT       GPIO_NUM_5
 #define FLOOR3_SELECT       GPIO_NUM_4
@@ -38,15 +40,17 @@ hd44780_t lcd = {
     .lines = 2,
     .pins = {
         .rs = GPIO_NUM_1,                           // GPIO for Register Select
-        .e  = GPIO_NUM_48,                           // GPIO for enable
-        .d4 = GPIO_NUM_35,                           // GPIO for data 4
+        .e  = GPIO_NUM_48,                          // GPIO for enable
+        .d4 = GPIO_NUM_35,                          // GPIO for data 4
         .d5 = GPIO_NUM_36,                          // GPIO for data 5
         .d6 = GPIO_NUM_37,                          // GPIO for data 6
-        .d7 = GPIO_NUM_2,                          // GPIO for data 7
+        .d7 = GPIO_NUM_2,                           // GPIO for data 7
         .bl = HD44780_NOT_USED
     }
 };
 
+
+// character data for up arrow and down arrow custom characters
 char LCD_string[8];
 static const uint8_t char_data[] =
 {
@@ -61,10 +65,10 @@ static const uint8_t char_data[] =
 #define LEDC_OUTPUT_IO      (18)        //GPIO for the LEDC .
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_DUTY_RES       LEDC_TIMER_13_BIT 
-#define LEDC_FREQUENCY      (50) // Frequency in Hertz.
-#define go_up_max           (670) //(719)
-#define go_down_max         (540) //(509)
-#define stop                (614)
+#define LEDC_FREQUENCY      (50)  // Frequency in Hertz.
+#define go_up_max           (670) // maximum speed for elevator moving up
+#define go_down_max         (540) // maximum speed for elevator moving down
+#define stop                (614) // duty value for stopped elevator
 
 //ADC configuration
 int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
@@ -74,7 +78,7 @@ adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
 #define ACTIVE          1
 
 
-//function prototypes
+//function and task prototypes
 static void button_config(void);  
 static void ADC_config(void);
 static void ledc_initialize(void);
@@ -89,19 +93,23 @@ static bool floor_req(int f);
 
 void app_main(void)
 {
+    // call functions to configure hardware (buttons, ADC, LEDC, LCD)
     button_config();
     ADC_config();
     ledc_initialize();
     ESP_ERROR_CHECK(hd44780_init(&lcd));
     hd44780_upload_character(&lcd, 0, char_data);
     hd44780_upload_character(&lcd, 1, char_data + 8);
+
+    // create tasks
     xTaskCreate(input_task, "Input Task", 2048, NULL, 3, NULL);
     xTaskCreate(servo_task, "Servo Task", 2048, NULL, 4, NULL);
     xTaskCreate(elevator_FSM, "Elevator FSM", 2048, NULL, 5, NULL);
     
 
     while (1){
-        // adc oneshot read for three LDRs
+        
+        // adc oneshot read for three LDRs, set current floor variable based on LDR readings
         for (int i=1; i<= floors; i++) {
             int adc_bits;
             adc_oneshot_read (adc2_handle, FLOOR_LDR[i], &adc_bits);
@@ -110,17 +118,19 @@ void app_main(void)
                 current_floor = i;
             }
         }
+
+        // print current floor on LCD screen
         hd44780_gotoxy(&lcd, 0, 0);
         snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
         hd44780_puts(&lcd, LCD_string);
         vTaskDelay(pdMS_TO_TICKS(100));
-        printf("%d, %d, %d\n", LDR_values[1], LDR_values[2], LDR_values[3]);
+        /*printf("%d, %d, %d\n", LDR_values[1], LDR_values[2], LDR_values[3]);
         int temp_sensor = gpio_get_level(TEMP_SENSOR);
-        printf("%d\n", temp_sensor);
+        printf("%d\n", temp_sensor);*/
     }
 }
 
-
+// task gets level from each push button and sets corresponding array entry to 1
 void input_task (void *pvParameter) {
     while(1){
         if (gpio_get_level(FLOOR1_SELECT)==ACTIVE) {inside_req[1] = 1;}
@@ -134,7 +144,7 @@ void input_task (void *pvParameter) {
     }
 }
 
-
+// initialize FSM states as global variables
 typedef enum {
         Idle,
         Moveup,
@@ -145,17 +155,18 @@ typedef enum {
     } State_t;
     State_t state;
     State_t last_state;
+
+// variables to control fire system
 int fire = 0;
 int blink = 1;
 
 void elevator_FSM (void *pvParameter) {
-    state = Idle;
+    state = Idle;                                   // initial state is Idle
     while (1) {
         last_state = state;
         vTaskDelay (20/portTICK_PERIOD_MS);
         switch (state) {
             case (Idle):
-            printf ("Idle\n");
                 if (gpio_get_level(TEMP_SENSOR)){
                     state = Fire;
                     break;
@@ -177,7 +188,6 @@ void elevator_FSM (void *pvParameter) {
                 break;
             
             case (Wait):
-            printf ("Wait\n");
                 if (gpio_get_level(TEMP_SENSOR)){
                     state = Fire;
                     break;
@@ -210,7 +220,6 @@ void elevator_FSM (void *pvParameter) {
                     state = Fire;
                     break;
                 }
-            printf ("Moveup\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -226,7 +235,6 @@ void elevator_FSM (void *pvParameter) {
                     state = Fire;
                     break;
                 }
-            printf ("Movedown\n");
                 if (floor_req(current_floor)) {
                     state = Slow;
                 }
@@ -242,26 +250,24 @@ void elevator_FSM (void *pvParameter) {
                     state = Fire;
                     break;
                 }
-            printf ("Slow\n");
-                if(LDR_values[current_floor] > LDR_mid){
+                if(LDR_values[current_floor] > LDR_mid){    //Change state to Wait when LDR detects bright light again
                     state = Wait;
                 }
                 else{
-                    state = Slow;
+                    state = Slow;                           // Otherwise, stay in Slow state
                 }
                 break;
-            //Change state to stop when the LDR detect bright light again.
+            
 
             case (Fire):
-                printf("Fire state\n");
-                gpio_set_level(FIRE_SYSTEM, blink);
+                gpio_set_level(FIRE_SYSTEM, blink);         // blink LED and buzzer alarm
                 blink = !blink;
-                if (fire == 0){
+                if (fire == 0){                             // send elevator to first floor
                     inside_req[1] = 1;
-                    fire = 1;
+                    fire = 1;                               // change fire variable so elevator is only sent to first floor once
                 }
-                vTaskDelay(1000/portTICK_PERIOD_MS);
-                state = Fire;
+                vTaskDelay(1000/portTICK_PERIOD_MS);        // delay 1s for blink (2s-period blinking)
+                state = Fire;                               // do not leave Fire state (system must be reset)
         }
     }
 }
@@ -274,96 +280,82 @@ void servo_task (void *pvParameter) {
     }
     while (1){
         vTaskDelay(20/portTICK_PERIOD_MS);
+
+        // If state is Idle or Wait, set elevator duty to stop (elevator does not move)
         if ((state == Idle || state == Wait) && executed != 1) {
             ledc_set_duty (LEDC_MODE, LEDC_CHANNEL, stop);
             ledc_update_duty (LEDC_MODE, LEDC_CHANNEL);
-            executed = 1;
+            executed = 1;               // change variable executed value so if-statement only sets value once
         }
+        // If state is Moveup, accelerate elevator to go_up_max value
         else if (state == Moveup && executed != 2) {
             for(int i = stop; i <= go_up_max; i = i + 5){   // increment duty count by 5
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);          // wait 10 ms
             }
-            executed = 2;
+            executed = 2;               // change variable executed value so for-loop only runs once
         }
+
+        // If state is Movedown, accelerate elevator to go_down_max value
         else if (state == Movedown && executed != 3) {
-            for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+            for(int i = stop; i >= go_down_max; i = i - 5){ // increment duty count by 5
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                vTaskDelay(10/portTICK_PERIOD_MS);          // wait 10 ms
             }
-            executed = 3;
+            executed = 3;               // change variable executed value so for-loop only runs once
         }
+
+        // If state is Slow, decelerate elevator to 10 away from stop value
         else if (state == Slow && executed != 4) {
             if (executed == 2) {
-                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 10; i--){
-                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i >= stop + 10; i--){   // increment duty count by 1
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                    vTaskDelay(20/portTICK_PERIOD_MS);          // wait 10 ms
                 }
             }
             if (executed == 3) {
-                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
-                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
+                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){   // increment duty count by 1
+                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                    vTaskDelay(20/portTICK_PERIOD_MS);          // wait 10 ms
                 }
             }
-            executed = 4;
-        }   
+            executed = 4;               // change variable executed value so for-loop only runs once
+        }
+
+        // If state is Fire, send elevator to first floor (accelerate, then decelerate, then stop at first floor)
         else if (state == Fire) {
             if (current_floor == 1 && LDR_values[1] > LDR_mid) {vTaskDelay (pdMS_TO_TICKS(100000));}
+            // if elevator is not on first floor, accelerate to go_down_max
             else if (current_floor != 1) {
                 if(executed !=5){
-                    for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                        vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
+                    for(int i = stop; i >= go_down_max; i = i - 5){ // increment duty count by 5
+                        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                        vTaskDelay(10/portTICK_PERIOD_MS);          // wait 10 ms
                     }
-                    executed = 5;
+                    executed = 5;       // change variable executed value so for-loop only runs once
                 }
             }
+            // once elevator reaches first floor, slow down until first floor LDR is bright again
             else {
                 while (LDR_values[1] < LDR_mid) {
                     if (executed != 6) {
-                        for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
-                            ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                            ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                            vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
+                        for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){   // increment duty count by 1
+                            ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);  // set duty cycle to new i-value
+                            ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  // update duty cycle
+                            vTaskDelay(20/portTICK_PERIOD_MS);          // wait 10 ms
                         }
-                        executed = 6;
+                        executed = 6;   // change variable executed value so for-loop only runs once
                     }
                     vTaskDelay (pdMS_TO_TICKS(10));
                 }
-                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, stop);           
+                ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, stop);       // stop elevator when program exits while loop (when LDR_values[1] >= LDR_mid)
                 ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);  
             }
-
-
-            /*if (executed != 5){
-                for(int i = stop; i >= go_down_max; i = i - 5){   // increment duty count by 5
-                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(10/portTICK_PERIOD_MS);         // wait 10 ms
-                }
-                executed = 5;
-            }
-
-            if (LDR_values[1] < LDR_mid){
-                for(int i = ledc_get_duty(LEDC_MODE, LEDC_CHANNEL); i <= stop - 10; i++){
-                    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, i);              // set duty cycle to new i-value
-                    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);              // update duty cycle
-                    vTaskDelay(20/portTICK_PERIOD_MS);         // wait 10 ms
-                    if (LDR_values[1] > LDR_mid){
-                        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, stop);
-                        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
-                        executed = 6;
-                        break;
-                    }
-
-                }
-            }*/
         }
     }
 }
@@ -405,17 +397,17 @@ void button_config(void){
 
 // function to configure and initialize ADC
 void ADC_config(void){
-    adc_oneshot_unit_init_cfg_t init_config2 = {
+    adc_oneshot_unit_init_cfg_t init_config2 = {        // Unit configuration
         .unit_id = ADC_UNIT_2,
-    };                                                  // Unit configuration
+    };                                                  
     adc_oneshot_new_unit(&init_config2, &adc2_handle);  // Populate unit handle
 
-    adc_oneshot_chan_cfg_t config = {
+    adc_oneshot_chan_cfg_t config = {                   // Channel config
         .atten = ADC_ATTEN,
         .bitwidth = BITWIDTH
-    };                                                  // Channel config
+    };                                                  
     
-    for (int i=1; i<= floors; i++) {
+    for (int i=1; i<= floors; i++) {                    // configure the ADC channel for each LDR
         adc_oneshot_config_channel (adc2_handle, FLOOR_LDR[i], &config);
     }
 }
