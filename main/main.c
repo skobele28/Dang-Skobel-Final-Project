@@ -12,7 +12,7 @@
 
 //Global variables -- Can change number of floors and the LDR value for middle light level
 #define floors              3
-#define LDR_mid            1000
+#define LDR_mid            1200
 int inside_req[floors+1] = {0};
 int up_call [floors+1] = {0};
 int down_call [floors+1] = {0};
@@ -400,6 +400,7 @@ void button_config(void){
     gpio_pulldown_en(FLOOR2_CALLDOWN);
     gpio_pulldown_en(FLOOR2_CALLUP);
     gpio_pulldown_en(FLOOR3_CALLDOWN);
+    gpio_pulldown_en(TEMP_SENSOR);
 }
 
 // function to configure and initialize ADC
