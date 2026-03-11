@@ -74,20 +74,31 @@ static const uint8_t char_data[] =
 int FLOOR_LDR[floors+1] = {-1, 0, 1, 2};
 #define ADC_ATTEN       ADC_ATTEN_DB_12 // set ADC attenuation
 #define BITWIDTH        ADC_BITWIDTH_12 // set ADC bitwidth
-adc_oneshot_unit_handle_t adc2_handle;      // ADC handle for Mode and Timer
+adc_oneshot_unit_handle_t adc2_handle;  // ADC handle for Mode and Timer
 #define ACTIVE          1
 
 
 //function and task prototypes
-static void button_config(void);  
+
+// function to configure buttons, inputs, and outputs
+static void button_config(void);
+// function to configure ADC
 static void ADC_config(void);
+// function to configure and initialize LEDC
 static void ledc_initialize(void);
+// task gets level from each push button and set values in arrays accordingly
 static void input_task(void *pvParameter);
+// FSM for elevator logic
 static void elevator_FSM(void *pvParameter);
+// task to control servo motor (stop, move up, move down, slow down)
 static void servo_task(void *pvParameter);
+// function to determine there are no requests
 static bool all_zeroes(void);
+// function to determine if there are any requests for floor(s) above the current floor
 static bool req_up(void);
+// function to detemrine if there are any requests for floor(s) below the current floor
 static bool req_down(void);
+// function to determine if there is a request for the current floor
 static bool floor_req(int f);
 
 
@@ -163,90 +174,92 @@ int blink = 1;
 void elevator_FSM (void *pvParameter) {
     state = Idle;                                   // initial state is Idle
     while (1) {
-        last_state = state;
+        last_state = state;                         // store last_state
         vTaskDelay (20/portTICK_PERIOD_MS);
-        switch (state) {
+        switch (state) {                            // switch statement based on value of state
             case (Idle):
-                if (gpio_get_level(TEMP_SENSOR)){
+                if (gpio_get_level(TEMP_SENSOR)){   // if temp sensor input is HIGH, switch to Fire state
                     state = Fire;
                     break;
                 }
-                else if (all_zeroes()){
+                else if (all_zeroes()){             // if no button presses, remain in Idle state
                     state = Idle;
                 }
-                else if (req_up()) {
+                else if (req_up()) {                // if there is request to go to floor above current floor, switch to Moveup state
                     state = Moveup;
                 }
-                else if (req_down()) {
+                else if (req_down()) {              // if there is request to to to floor below current floor, switch to Movedown state
                     state = Movedown;
                 }
-                else {
+                else {                              // Otherwise (ex. request for current floor), switch to Wait state
                     state = Wait;
                 }
-                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_gotoxy(&lcd, 14, 0);        // print nothing in arrow location on LCD
                 hd44780_puts(&lcd, " ");
                 break;
             
             case (Wait):
-                if (gpio_get_level(TEMP_SENSOR)){
+                if (gpio_get_level(TEMP_SENSOR)){   // if temp sensor input is HIGH, switch to Fire state
                     state = Fire;
                     break;
                 }
-                vTaskDelay (2000/portTICK_PERIOD_MS);
-                inside_req[current_floor] = 0;
-                if (last_state == Moveup) {
-                    if (req_up()) state = Moveup;
-                    else if (req_down()) state = Movedown;
-                    else state = Idle;
-                    up_call[current_floor] = 0;
+                vTaskDelay (2000/portTICK_PERIOD_MS);   // delay 2s (wait for people to enter/exit elevator)
+                inside_req[current_floor] = 0;          // clear inside request
+                
+                // prioritize moving in same direction as last_state
+                if (last_state == Moveup) {             // if last_state is Moveup
+                    if (req_up()) state = Moveup;       // if there is another up request, switch to Moveup state
+                    else if (req_down()) state = Movedown;  // if there is a down request, switch to Movedown state
+                    else state = Idle;                  // if there are no requests to move to other floors, switch to Idle state
+                    up_call[current_floor] = 0;         // clear up_call for current floor
                 }
-                else if (last_state == Movedown) {
-                    if (req_down()) state = Movedown;
-                    else if (req_up()) state = Moveup;
-                    else state = Idle;
-                    down_call[current_floor] = 0;
+                else if (last_state == Movedown) {      //if last_state is Movedown
+                    if (req_down()) state = Movedown;   // if there is another down request, switch to Movedown state
+                    else if (req_up()) state = Moveup;  // if there is an up request, switch to Moveup state
+                    else state = Idle;                  // if there are no requests to move to other floors, switch to Idle state
+                    down_call[current_floor] = 0;       // clear down_call for current floor
                 }
                 else {
-                    state = Idle;
-                    up_call[current_floor] = 0;
-                    down_call[current_floor]=0;
+                    state = Idle;                       // switch to Idle state
+                    up_call[current_floor] = 0;         // clear current floor up_call request
+                    down_call[current_floor]=0;         // clear current floor down_call request
                 }
-                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_gotoxy(&lcd, 14, 0);            // print nothing in arrow location on LCD
                 hd44780_puts(&lcd, " ");
                 break;
             
             case (Moveup):
-                if (gpio_get_level(TEMP_SENSOR)){
+                if (gpio_get_level(TEMP_SENSOR)){   // if temp sensor input is HIGH, switch to Fire state
                     state = Fire;
                     break;
                 }
-                if (floor_req(current_floor)) {
+                if (floor_req(current_floor)) {     // if there is a floor request for the current floor, switch to Slow state
                     state = Slow;
                 }
-                else {
+                else {                              // otherwise, remain in Moveup state
                     state = Moveup;
                 }
-                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_gotoxy(&lcd, 14, 0);        // print up arrow on LCD
                 hd44780_puts(&lcd, "\x08");
                 break;
 
             case (Movedown):
-                if (gpio_get_level(TEMP_SENSOR)){
+                if (gpio_get_level(TEMP_SENSOR)){   // if temp sensor input is HIGH, switch to Fire state
                     state = Fire;
                     break;
                 }
-                if (floor_req(current_floor)) {
+                if (floor_req(current_floor)) {     // if there is a floor request for the current floor, switch to Slow state
                     state = Slow;
                 }
                 else {
-                    state = Movedown;
+                    state = Movedown;               // otherwise, remain in Movedown state
                 }
-                hd44780_gotoxy(&lcd, 14, 0);
+                hd44780_gotoxy(&lcd, 14, 0);        // print down arrow on LCD
                 hd44780_puts(&lcd, "\x09");
                 break;
             
             case (Slow):
-                if (gpio_get_level(TEMP_SENSOR)){
+                if (gpio_get_level(TEMP_SENSOR)){   // if temp sensor input is HIGH, switch to Fire state
                     state = Fire;
                     break;
                 }
@@ -272,7 +285,7 @@ void elevator_FSM (void *pvParameter) {
     }
 }
 
-
+// task to control servo motor (stopped, moving up, moving down, slowing down, fire state)
 void servo_task (void *pvParameter) {
     int executed = 0;       // ensures each motor function only occurs once within the while loop, until conditions change
     if(current_floor != 1) {
@@ -438,7 +451,7 @@ void ledc_initialize(void)
     ledc_channel_config(&ledc_channel);
 }
 
-
+// if there are any inside requests or elevator calls, return false, otherwise return true
 bool all_zeroes(void) {
     for (int i = 1; i <= floors; i++) {
         if (inside_req[i] != 0 || up_call[i] != 0 || down_call[i] != 0) {
@@ -448,6 +461,7 @@ bool all_zeroes(void) {
     return true;
 }
 
+// if there are any buttons pushed on floors above current floor, return true, otherwise return false
 bool req_up(void) {
     for (int i = current_floor +1; i <= floors; i++) {
         if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
@@ -457,6 +471,7 @@ bool req_up(void) {
     return false;
 }
 
+// if there are any buttons pushed on floors below current floor, return true, otherwise return false
 bool req_down(void) {
     for (int i = current_floor - 1; i > 0; i--) {
         if (inside_req[i] != 0|| up_call[i] != 0 || down_call[i] != 0) {
@@ -466,6 +481,7 @@ bool req_down(void) {
     return false;
 }
 
+// if there is a request for the current floor, return true, otherwise return false
 bool floor_req(int f) {
     if (up_call[f] == 1 || down_call[f] ==1 || inside_req[f] == 1) {
         return true;
