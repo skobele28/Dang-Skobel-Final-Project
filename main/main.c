@@ -135,9 +135,6 @@ void app_main(void)
         snprintf(LCD_string, sizeof(LCD_string), "Floor %d", current_floor);
         hd44780_puts(&lcd, LCD_string);
         vTaskDelay(pdMS_TO_TICKS(100));
-        /*printf("%d, %d, %d\n", LDR_values[1], LDR_values[2], LDR_values[3]);
-        int temp_sensor = gpio_get_level(TEMP_SENSOR);
-        printf("%d\n", temp_sensor);*/
     }
 }
 
