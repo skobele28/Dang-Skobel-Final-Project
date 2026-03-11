@@ -206,24 +206,9 @@ void elevator_FSM (void *pvParameter) {
                 vTaskDelay (2000/portTICK_PERIOD_MS);   // delay 2s (wait for people to enter/exit elevator)
                 inside_req[current_floor] = 0;          // clear inside request
                 
-                // prioritize moving in same direction as last_state
-                if (last_state == Moveup) {             // if last_state is Moveup
-                    if (req_up()) state = Moveup;       // if there is another up request, switch to Moveup state
-                    else if (req_down()) state = Movedown;  // if there is a down request, switch to Movedown state
-                    else state = Idle;                  // if there are no requests to move to other floors, switch to Idle state
-                    up_call[current_floor] = 0;         // clear up_call for current floor
-                }
-                else if (last_state == Movedown) {      //if last_state is Movedown
-                    if (req_down()) state = Movedown;   // if there is another down request, switch to Movedown state
-                    else if (req_up()) state = Moveup;  // if there is an up request, switch to Moveup state
-                    else state = Idle;                  // if there are no requests to move to other floors, switch to Idle state
-                    down_call[current_floor] = 0;       // clear down_call for current floor
-                }
-                else {
-                    state = Idle;                       // switch to Idle state
-                    up_call[current_floor] = 0;         // clear current floor up_call request
-                    down_call[current_floor]=0;         // clear current floor down_call request
-                }
+                state = Idle;                       // switch to Idle state
+                up_call[current_floor] = 0;         // clear current floor up_call request
+                down_call[current_floor]=0;         // clear current floor down_call request
                 hd44780_gotoxy(&lcd, 14, 0);            // print nothing in arrow location on LCD
                 hd44780_puts(&lcd, " ");
                 break;
