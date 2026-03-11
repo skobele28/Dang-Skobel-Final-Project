@@ -1,16 +1,15 @@
-## Final Project -- 3-story elevator system
-- Professor Traver
-- ECE 218 
-- February 2026
+## Final Project: Three Story Elevator
+Professor Traver<br>
+ECE 218<br>
+February 2026<br>
 
-# Team members
-- Erika Skobel
-- Dang Duy Hung
+### Team members
+Dang Duy Hung and Erika Skobel
 
-# Project description
+### Project description
 
 
-# Wiring
+### Wiring
 Please see the source code for pins and connections.
 
-# Design alternatives
+### Design alternatives
