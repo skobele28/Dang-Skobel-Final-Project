@@ -26,3 +26,6 @@ Please see the source code for pins and connections.
 
 ### Starting Repository
 [LCD Display](https://github.com/goodmangc/LCD_display_starter_code.git)
+
+### Reference
+*Medium* article ["Inside the Logic of a Lift: Designing an Elevator FSM"](https://medium.com/@usmanfaizyab123/inside-the-logic-of-a-lift-designing-an-elevator-fsm-73586449582d) by Usman Faizyab Khan
